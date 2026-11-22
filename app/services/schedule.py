@@ -248,9 +248,37 @@ def upcoming_changes(db: Session, group_code: str, days: int = 7) -> list[Lesson
     return out
 
 
-def slot_taken(db: Session, group_code: str, d: date, pair_no: int) -> bool:
-    """Занят ли у группы слот: в этот день и на эту пару уже стоит занятие, которое состоится."""
-    return any(v.happens and not v.is_exam and v.pair_no == pair_no for v in lessons_for_date(db, group_code, d))
+def slot_taken(db: Session, group_code: str, d: date, pair_no: int, ignore_change_id: int | None = None) -> bool:
+    """Занят ли у группы слот: в этот день и на эту пару уже стоит занятие, которое состоится.
+    ignore_change_id: перенос, который сейчас заменяется (повторный перенос на тот же слот не конфликт)."""
+    return any(v.happens and not v.is_exam and v.pair_no == pair_no
+               and not (ignore_change_id is not None and v.status == "moved_in" and v.change_id == ignore_change_id)
+               for v in lessons_for_date(db, group_code, d))
+
+
+def lesson_start(d: date, pair_no: int) -> datetime:
+    return datetime.combine(d, PAIRS[pair_no][0])
+
+
+def change_notice(discipline: str, pair_no: int, c: LessonChange) -> tuple[str, str]:
+    """Заголовок и текст уведомления группе об изменении занятия (одинаковые в кабинете деканата и в демо-данных)."""
+    from .timeutil import fmt_date
+    when = f"{fmt_date(c.date, with_weekday=True)}, {pair_name(pair_no)}"
+    if c.change_type == "cancelled":
+        title, body = f"Отмена: {discipline}", f"{when}: пара отменена."
+    elif c.change_type == "room":
+        title, body = f"Другая аудитория: {discipline}", f"{when}: пара в ауд. {c.new_room}."
+    elif c.change_type == "teacher":
+        title, body = f"Замена преподавателя: {discipline}", f"{when}: пару ведет {c.new_teacher}."
+    elif c.change_type == "online":
+        title, body = f"Онлайн: {discipline}", f"{when}: пара пройдет онлайн."
+    else:
+        title = f"Перенос: {discipline}"
+        body = (f"Пара {from_day(c.date)}, {pair_name(pair_no)}, перенесена "
+                f"{on_day(c.new_date)}, {pair_name(c.new_pair_no)}.")
+    if c.note:
+        body += f" {c.note}"
+    return title, body[:1].upper() + body[1:]
 
 
 # ---------------------------- Экспорт в календарь (RFC 5545) ----------------------------
@@ -331,14 +359,21 @@ def board_hints(db: Session, group_code: str, current: "LessonView | None", nxt:
     # Все пары дня онлайн
     if happening and all(v.online for v in happening):
         hints.append("В этот день все пары онлайн, ехать в университет не нужно")
-    if current:
-        later = [v for v in happening if v.start >= current.end]
+    now = now_local()
+    # Пара, с которой студент идет: та, что идет сейчас, или (на перемене) та, что уже закончилась сегодня
+    prev = current
+    if prev is None and nxt is not None and nxt.day == now.date():
+        ended = [v for v in happening if v.end_dt <= now]
+        prev = ended[-1] if ended else None
+    if focus.day == now.date():
+        later = [v for v in happening if v.start >= focus.end]
         if not later:
-            hints.append("Это последняя пара сегодня")
-        elif nxt is not None and nxt.day == current.day:
+            hints.append("Это последняя пара сегодня" if len(happening) > 1 else "Сегодня это единственная пара")
+        elif current and nxt is not None and nxt.day == current.day:
             gap = int((nxt.start_dt - current.end_dt).total_seconds() // 60)
             if gap >= 60:
                 hints.append(f"После этой пары окно {_dur(gap)}")
-            if not nxt.online and not current.online and nxt.building != current.building:
-                hints.append(f"Следующая пара в другом корпусе: {nxt.building}")
+    if prev is not None and nxt is not None and nxt.day == prev.day and nxt is not prev:
+        if not nxt.online and not prev.online and nxt.building != prev.building:
+            hints.append(f"Следующая пара в другом корпусе: {nxt.building}")
     return hints

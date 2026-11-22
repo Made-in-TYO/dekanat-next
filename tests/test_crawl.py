@@ -64,5 +64,5 @@ def test_code_has_no_undefined_names_or_unused_imports():
     """pyflakes: неопределенные имена (как удаленный импорт STATUS) ловятся до запуска."""
     pytest.importorskip("pyflakes")
     root = pathlib.Path(__file__).resolve().parent.parent
-    r = subprocess.run([sys.executable, "-m", "pyflakes", "app", "tests"], cwd=root, capture_output=True, text=True)
+    r = subprocess.run([sys.executable, "-m", "pyflakes", "app", "tests", "scripts"], cwd=root, capture_output=True, text=True)
     assert r.returncode == 0, r.stdout + r.stderr

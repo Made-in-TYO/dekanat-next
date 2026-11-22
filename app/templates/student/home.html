@@ -52,7 +52,7 @@
       {% if lessons_today %}
         <ol class="timeline">{% for v in lessons_today %}{{ ui.lesson_row(v, now) }}{% endfor %}</ol>
       {% else %}
-        {{ ui.empty('calendar-days', 'Сегодня пар нет', (today_note ~ '. ' if today_note else '') ~ 'Ближайшее занятие показано на табло выше.') }}
+        {{ ui.empty('calendar-days', 'Сегодня пар нет', (today_note ~ '.' if today_note else '') ~ (' Ближайшее занятие показано на табло выше.' if focus else '')) }}
       {% endif %}
     </section>
 

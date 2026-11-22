@@ -125,6 +125,35 @@ def is_instant(type_code: str, fmt: str) -> bool:
     return type_code in INSTANT_TYPES and fmt == "electronic"
 
 
+@dataclass(frozen=True)
+class Eta:
+    text: str       # для страницы заявки: "Будет готово к среде, 25 ноября"
+    short: str      # для списка заявок: "будет готово к среде, 25 ноября"
+    overdue: bool   # обычный срок уже прошел
+
+
+def eta_for(created_local, days: int, kind: str) -> Eta:
+    """Прогноз готовности по-русски. Если обычный срок прошел, честно говорим об этом, а не показываем дату в прошлом."""
+    from datetime import timedelta
+
+    from .timeutil import by_day, fmt_date, today
+    eta = ready_eta(created_local, days)
+    t = today()
+    if eta < t:
+        what = "решение нужно" if kind == "application" else "документ нужен"
+        return Eta(f"Обычный срок прошел {fmt_date(eta)}. Если {what} срочно, напишите в деканат",
+                   f"обычный срок прошел {fmt_date(eta)}", True)
+    subject = "Решение будет" if kind == "application" else "Будет готово"
+    if eta == t:
+        when = "сегодня"
+    elif eta == t + timedelta(days=1):
+        when = f"завтра, {fmt_date(eta)}"
+    else:
+        when = by_day(eta)
+    text = f"{subject} {when}"
+    return Eta(text, text[:1].lower() + text[1:], False)
+
+
 def ready_eta(created_local, days: int):
     """Примерная дата готовности: через N рабочих дней (без выходных и праздников из учебного календаря)."""
     from datetime import date, timedelta

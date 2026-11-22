@@ -14,8 +14,9 @@
   </ol>
   <form method="post" action="/staff/messages/{{ st.id }}" class="chat-form" data-submit-once>
     <input type="hidden" name="csrf_token" value="{{ csrf }}">
+    {% if chat_error %}<p class="field-error chat-error" id="body-err" role="alert">{{ chat_error }}</p>{% endif %}
     <label for="body" class="sr-only">Ответ</label>
-    <textarea class="input" id="body" name="body" rows="2" maxlength="2000" required placeholder="Ответ студенту"></textarea>
+    <textarea class="input" id="body" name="body" rows="2" maxlength="2000" required placeholder="Ответ студенту"{% if chat_error %} aria-invalid="true" aria-describedby="body-err" autofocus{% endif %}></textarea>
     <button class="btn btn-primary" type="submit" data-busy-text="...">{{ icon('send') }}<span>Ответить</span></button>
   </form>
 </section>

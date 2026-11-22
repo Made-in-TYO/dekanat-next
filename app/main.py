@@ -10,11 +10,12 @@ from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import PlainTextResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.concurrency import run_in_threadpool
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from . import config
 from .routes import auth, public, staff, student
-from .security import LoginRequired, WrongRole, is_https
+from .security import LoginRequired, WrongRole, _is_internal, is_https
 from .seed import ensure_demo_fresh, init_db
 from .web import render
 
@@ -46,19 +47,16 @@ CSP = ("default-src 'self'; img-src 'self' data:; style-src 'self'; script-src '
        "form-action 'self'; object-src 'none'")
 
 
-@app.middleware("http")
-async def security_middleware(request: Request, call_next):
-    # Демо-данные обновляются раз в сутки: первая страница нового дня пересоздает базу
-    if not request.url.path.startswith("/static"):
-        ensure_demo_fresh()
-    # Запросы, меняющие данные, принимаем только со своего сайта (защита от CSRF вдобавок к токену в формах)
-    if request.method not in ("GET", "HEAD", "OPTIONS"):
-        origin = request.headers.get("origin")
-        if origin:  # "null" тоже чужой: так браузер помечает запросы из песочниц и после перенаправлений
-            allowed = {(request.headers.get(h) or "").split(":")[0] for h in ("host", "x-forwarded-host")} | config.TRUSTED_HOSTS
-            if urlparse(origin).hostname not in allowed:
-                return PlainTextResponse("Запрос с чужого сайта отклонен", status_code=403)
-    response = await call_next(request)
+def _allowed_hosts(request: Request) -> set[str]:
+    """Адреса нашего сайта. X-Forwarded-Host учитываем, только если запрос пришел от прокси хостинга."""
+    hosts = {(request.headers.get("host") or "").split(":")[0]} | config.TRUSTED_HOSTS
+    peer = request.client.host if request.client else ""
+    if _is_internal(peer) and request.headers.get("x-forwarded-host"):
+        hosts.add(request.headers["x-forwarded-host"].split(",")[0].strip().split(":")[0])
+    return hosts
+
+
+def apply_security_headers(request: Request, response) -> None:
     h = response.headers
     h.setdefault("Content-Security-Policy", CSP)
     h.setdefault("X-Content-Type-Options", "nosniff")
@@ -71,6 +69,22 @@ async def security_middleware(request: Request, call_next):
     # Личные страницы не кешируем в браузере и прокси
     if not request.url.path.startswith("/static"):
         h.setdefault("Cache-Control", "no-store")
+
+
+@app.middleware("http")
+async def security_middleware(request: Request, call_next):
+    # Демо-данные: раз в сутки и после простоя база пересоздается. Активностью считаются только
+    # запросы посетителей с сеансом, а не проверки мониторинга. Работа с базой идет вне цикла событий.
+    if not request.url.path.startswith("/static"):
+        await run_in_threadpool(ensure_demo_fresh, config.SESSION_COOKIE in request.cookies)
+    # Запросы, меняющие данные, принимаем только со своего сайта (защита от CSRF вдобавок к токену в формах)
+    if request.method not in ("GET", "HEAD", "OPTIONS"):
+        origin = request.headers.get("origin")
+        if origin:  # "null" тоже чужой: так браузер помечает запросы из песочниц и после перенаправлений
+            if urlparse(origin).hostname not in _allowed_hosts(request):
+                return PlainTextResponse("Запрос с чужого сайта отклонен", status_code=403)
+    response = await call_next(request)
+    apply_security_headers(request, response)
     return response
 
 
@@ -118,9 +132,12 @@ async def validation_error(request: Request, exc: RequestValidationError):
 @app.exception_handler(Exception)
 async def server_error(request: Request, exc: Exception):
     log.exception("Unhandled error", exc_info=exc)
-    return render(request, "error.html", {"code": 500, "title": "Ошибка на сервере",
-                                          "text": "Мы уже видим ее в журнале. Попробуйте обновить страницу через минуту."},
-                  status_code=500)
+    response = render(request, "error.html", {"code": 500, "title": "Ошибка на сервере",
+                                              "text": "Мы уже видим ее в журнале. Попробуйте обновить страницу через минуту."},
+                      status_code=500)
+    # Страница 500 формируется в обход middleware, поэтому заголовки безопасности ставим здесь
+    apply_security_headers(request, response)
+    return response
 
 
 app.include_router(public.router)

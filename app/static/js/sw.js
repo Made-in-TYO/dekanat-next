@@ -1,8 +1,10 @@
 // Service worker: кеширует оформление и показывает страницу "нет соединения".
 // Личные данные студента не кешируются.
-var CACHE = "dn-static-v9";
-var ASSETS = ["/static/css/app.css?v=9", "/static/js/app.js?v=9", "/static/js/theme.js?v=9",
-              "/static/icons/sprite.svg?v=9", "/static/img/logo.svg?v=9", "/offline"];
+// Версию (хеш содержимого файлов) подставляет сервер при выдаче этого файла, см. app/web.py
+var V = "__ASSET_VERSION__";
+var CACHE = "dn-static-" + V;
+var ASSETS = ["/static/css/app.css?v=" + V, "/static/js/app.js?v=" + V, "/static/js/theme.js?v=" + V,
+              "/static/icons/sprite.svg?v=" + V, "/static/img/logo.svg?v=" + V, "/offline"];
 
 self.addEventListener("install", function (e) {
   e.waitUntil(caches.open(CACHE).then(function (c) { return c.addAll(ASSETS); }).then(function () { return self.skipWaiting(); }));

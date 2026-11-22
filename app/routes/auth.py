@@ -32,8 +32,7 @@ def login_page(request: Request, next: str | None = None, db: Session = Depends(
     s = get_session(db, request)
     if s:
         return RedirectResponse(_home_for(s.user.role), status_code=303)
-    return render(request, "login.html", {"next": _safe_next(next) or "", "demo": DEMO_ACCOUNTS,
-                                          "expired": request.query_params.get("expired") == "1"})
+    return render(request, "login.html", {"next": _safe_next(next) or "", "demo": DEMO_ACCOUNTS})
 
 
 @router.post("/login")

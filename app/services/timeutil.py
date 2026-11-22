@@ -9,16 +9,32 @@ WEEKDAYS = ["Понедельник", "Вторник", "Среда", "Четв�
 WEEKDAYS_SHORT = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]
 WEEKDAYS_ACC = ["понедельник", "вторник", "среду", "четверг", "пятницу", "субботу", "воскресенье"]  # на ...
 WEEKDAYS_GEN = ["понедельника", "вторника", "среды", "четверга", "пятницы", "субботы", "воскресенья"]  # с ...
+WEEKDAYS_DAT = ["понедельнику", "вторнику", "среде", "четвергу", "пятнице", "субботе", "воскресенью"]  # к ...
+
+
+# "Машина времени" для тестов: если задано, все функции ниже считают, что сейчас это время вуза.
+# Модули импортируют now_local и utcnow по имени, поэтому подмена делается здесь, внутри функций.
+_frozen: datetime | None = None
+
+
+def freeze(local_dt: datetime | None) -> None:
+    """Зафиксировать "сейчас" (время вуза, без tzinfo) или вернуть настоящее время (None). Только для тестов."""
+    global _frozen
+    _frozen = local_dt
 
 
 def utcnow() -> datetime:
     """Текущее время UTC без tzinfo: так служебные отметки хранятся в базе."""
     from datetime import timezone
+    if _frozen is not None:
+        return _frozen.replace(tzinfo=TZ).astimezone(timezone.utc).replace(tzinfo=None)
     return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 def now_local() -> datetime:
     """Текущее время вуза без tzinfo (наивное), чтобы сравнивать с датами из базы."""
+    if _frozen is not None:
+        return _frozen
     return datetime.now(TZ).replace(tzinfo=None)
 
 
@@ -52,6 +68,12 @@ def from_day(d: date) -> str:
     """'с вторника, 24 ноября'"""
     prep = "со" if d.weekday() in (1, 2) else "с"  # со вторника, со среды
     return f"{prep} {WEEKDAYS_GEN[d.weekday()]}, {fmt_date(d)}"
+
+
+def by_day(d: date) -> str:
+    """'к среде, 25 ноября', 'ко вторнику, 24 ноября'"""
+    prep = "ко" if d.weekday() == 1 else "к"
+    return f"{prep} {WEEKDAYS_DAT[d.weekday()]}, {fmt_date(d)}"
 
 
 def human_day(d: date) -> str:

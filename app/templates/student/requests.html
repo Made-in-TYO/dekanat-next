@@ -28,7 +28,7 @@
     {% for r in active %}
     <li><a href="/requests/{{ r.id }}">
       <span class="rl-top"><b>{{ TYPES[r.type_code].title }}</b>{{ ui.status_chip(r) }}</span>
-      <small class="muted">{{ r.number }}, отправлена {{ r.created_at|ago }}{% if r.status in ('submitted', 'in_progress', 'need_info') %}, {{ 'решение' if TYPES[r.type_code].kind == 'application' else 'готово' }} примерно {{ ready_eta(r.created_at|local, TYPES[r.type_code].days)|fdate(with_weekday=True) }}{% endif %}</small>
+      <small class="muted">{{ r.number }}, отправлена {{ r.created_at|ago }}{% if r.status in ('submitted', 'in_progress', 'need_info') %}, {{ eta_for(r.created_at|local, TYPES[r.type_code].days, TYPES[r.type_code].kind).short }}{% endif %}</small>
       {{ ui.tracker(r) }}
     </a></li>
     {% endfor %}

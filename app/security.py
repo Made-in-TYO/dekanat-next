@@ -35,6 +35,7 @@ def verify_password(password_hash: str, password: str) -> bool:
 
 # Хеш-заглушка, чтобы время ответа не выдавало, существует ли логин
 _DUMMY_HASH = _ph.hash("dummy-password-for-timing")
+DEMO_LOGINS = {login for login, _pwd, _role in config.DEMO_ACCOUNTS}
 
 
 def _token_hash(token: str) -> str:
@@ -93,7 +94,10 @@ def authenticate(db: Session, login: str, password: str, ip: str) -> tuple[User 
             return None, "Слишком много попыток входа с этого адреса. Подождите несколько минут и попробуйте снова"
         mins = _lock_left(login, ip, now)
     if mins:
-        return None, f"Вход временно заблокирован после нескольких неудачных попыток. Попробуйте через {mins} мин"
+        msg = f"Вход временно заблокирован после нескольких неудачных попыток. Попробуйте через {mins} мин"
+        if login in DEMO_LOGINS:
+            msg += " или войдите под другим тестовым аккаунтом"
+        return None, msg
     user = db.scalar(select(User).where(User.login == login))
     ok = verify_password(user.password_hash if user else _DUMMY_HASH, password) and user is not None
     if not ok:
@@ -232,5 +236,8 @@ def public_base_url(request: Request) -> str:
 
 
 def is_https(request: Request) -> bool:
-    return (config.COOKIE_SECURE or request.url.scheme == "https"
-            or request.headers.get("x-forwarded-proto", "").split(",")[-1].strip() == "https")
+    """Пришел ли запрос по HTTPS. Заголовку X-Forwarded-Proto верим, как и X-Forwarded-For,
+    только от прокси во внутренней сети хостинга."""
+    peer = request.client.host if request.client else ""
+    forwarded = request.headers.get("x-forwarded-proto", "").split(",")[-1].strip() == "https"
+    return config.COOKIE_SECURE or request.url.scheme == "https" or (forwarded and _is_internal(peer))

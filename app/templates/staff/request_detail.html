@@ -28,12 +28,12 @@
         <legend>Новый статус</legend>
         <div class="choice-row">
           {% for st in transitions %}
-          <label class="choice choice-sm"><input type="radio" name="new_status" value="{{ st }}" {% if loop.first %}checked{% endif %}><span><b>{{ status_label(st, r.type_code, r.fmt) }}</b></span></label>
+          <label class="choice choice-sm"><input type="radio" name="new_status" value="{{ st }}" {% if (form.new_status if form and form.new_status else transitions[0]) == st %}checked{% endif %}><span><b>{{ status_label(st, r.type_code, r.fmt) }}</b></span></label>
           {% endfor %}
         </div>
       </fieldset>
       <div class="field"><label for="comment">Комментарий студенту</label>
-        <textarea class="input" id="comment" name="comment" rows="3" maxlength="1000" placeholder="Обязательно для статусов «Нужно уточнение» и «Отклонена»"></textarea></div>
+        <textarea class="input" id="comment" name="comment" rows="3" maxlength="1000" placeholder="Обязательно для статусов «Нужно уточнение» и «Отклонена»"{% if error %} aria-invalid="true" autofocus{% endif %}>{{ form.comment if form else '' }}</textarea></div>
       <button class="btn btn-primary" type="submit" data-busy-text="Сохраняем...">Сохранить и уведомить студента</button>
     </form>
     {% else %}

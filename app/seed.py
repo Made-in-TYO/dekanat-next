@@ -10,19 +10,34 @@ from datetime import date, datetime, time, timedelta
 
 from sqlalchemy import select
 
+from sqlalchemy.orm import selectinload
+
+from .config import DEMO_ACCOUNTS, HOLIDAYS
 from .db import Base, SessionLocal, engine
-from .models import (Announcement, Deadline, Discipline, Enrollment, ExamEvent, LessonChange, LessonTemplate,
-                     Message, Meta, Notification, PastResult, RequestEvent, ScoreItem, Student, StudentRequest, User)
+from .models import (Announcement, AuthSession, Deadline, Discipline, Enrollment, ExamEvent, LessonChange,
+                     LessonTemplate, Message, Meta, Notification, PastResult, RequestEvent, ScoreItem, Student,
+                     StudentRequest, User)
 from .security import hash_password
 from .services.catalog import DEKANAT_PLACE
-from .services.timeutil import now_local, week_monday
+from .services.timeutil import now_local, utcnow, week_monday
 
-# Тестовые аккаунты для жюри (пароли хранятся в базе только как хеш argon2id)
-DEMO_ACCOUNTS = [
-    ("kira", "Kira-2026", "Студентка магистратуры"),
-    ("timur", "Timur-2026", "Студент бакалавриата"),
-    ("dekanat", "Dekanat-2026", "Сотрудник деканата"),
-]
+__all__ = ["DEMO_ACCOUNTS", "init_db", "seed", "ensure_demo_fresh", "reset_demo_keep_sessions"]
+
+_hash_cache: dict[str, str] = {}
+
+
+def _demo_hash(password: str) -> str:
+    """argon2id специально медленный, поэтому хеш демо-пароля считаем один раз на процесс, а не при каждом сбросе."""
+    if password not in _hash_cache:
+        _hash_cache[password] = hash_password(password)
+    return _hash_cache[password]
+
+
+_HOLIDAYS = {date.fromisoformat(k) for k in HOLIDAYS}
+
+
+def _is_workday(d: date) -> bool:
+    return d.weekday() < 5 and d not in _HOLIDAYS
 
 KRONV = "Кронверкский пр., 49"
 LOMO = "ул. Ломоносова, 9"
@@ -38,25 +53,37 @@ def _to_utc(local_dt: datetime) -> datetime:
     return local_dt - timedelta(hours=3)
 
 
-def seed(db) -> None:
+def seed(db, commit: bool = True) -> None:
     now = now_local()
     today = now.date()
-    # Опорное время для событий в демо-данных: внутри рабочего дня деканата, а не ночью
-    if 10 <= now.hour < 18:
-        ref = now
-    elif now.hour >= 18:
-        ref = now.replace(hour=17, minute=40, second=0, microsecond=0)
+    # Опорное время для событий в демо-данных: внутри рабочего дня деканата (будни, не праздник, 10:00-17:40),
+    # а не ночью и не в выходной. Все события строятся от него назад, поэтому никогда не оказываются в будущем.
+    if _is_workday(today) and 10 <= now.hour and now.time() < time(17, 40):
+        ref = now.replace(second=0, microsecond=0)
     else:
-        ref = (now - timedelta(days=1)).replace(hour=17, minute=40, second=0, microsecond=0)
+        d = today if (_is_workday(today) and now.time() >= time(17, 40)) else today - timedelta(days=1)
+        while not _is_workday(d):
+            d -= timedelta(days=1)
+        ref = _dt(d, 17, 40)
+
+    def wd(k: int, h: int, m: int = 0) -> datetime:
+        """k-й рабочий день назад от опорного (0: день опорного времени) в заданное время, но не позже опорного."""
+        d = ref.date()
+        while k > 0:
+            d -= timedelta(days=1)
+            if _is_workday(d):
+                k -= 1
+        return min(_dt(d, h, m), ref)
+
     base = today if today.weekday() < 5 else today + timedelta(days=7 - today.weekday())
     mon = week_monday(base)
 
     # ---------------- Пользователи ----------------
-    staff = User(login="dekanat", password_hash=hash_password("Dekanat-2026"), role="staff", is_demo=True,
+    staff = User(login="dekanat", password_hash=_demo_hash("Dekanat-2026"), role="staff", is_demo=True,
                  full_name="Мельникова Ольга Сергеевна", position="Специалист по учебной работе")
-    u_kira = User(login="kira", password_hash=hash_password("Kira-2026"), role="student", is_demo=True,
+    u_kira = User(login="kira", password_hash=_demo_hash("Kira-2026"), role="student", is_demo=True,
                   full_name="Воронцова Кира Андреевна")
-    u_timur = User(login="timur", password_hash=hash_password("Timur-2026"), role="student", is_demo=True,
+    u_timur = User(login="timur", password_hash=_demo_hash("Timur-2026"), role="student", is_demo=True,
                    full_name="Галиев Тимур Ринатович")
     db.add_all([staff, u_kira, u_timur])
     db.flush()
@@ -254,96 +281,103 @@ def seed(db) -> None:
     dl(timur, "Оплатить обучение за весенний семестр", 20, "Деканат", 18, 0)
 
     # ---------------- Заявки ----------------
-    def req(st, number, type_code, fmt, status, purpose, created_days_ago, events, staff_comment=None, ready=False):
-        created_local = datetime.combine(today - timedelta(days=created_days_ago), time(10, 15))
-        if created_local > now - timedelta(minutes=20):
-            created_local = now - timedelta(minutes=20)
-        created = _to_utc(created_local)
+    # Время каждого события задано явно: события идут по порядку, в рабочие часы и не позже опорного времени.
+    def req(st, number, type_code, fmt, status, purpose, events, staff_comment=None):
+        """events: [(статус, кто, комментарий, местное время)], первое событие = подача заявки."""
+        created = _to_utc(events[0][3])
         r = StudentRequest(number=number, student_id=st.id, type_code=type_code, fmt=fmt, status=status, purpose=purpose,
                            copies=1, created_at=created, updated_at=created, staff_comment=staff_comment)
-        if ready:
-            r.verify_code = secrets.token_hex(8)
-            r.issued_at = created + timedelta(days=1)
-            if fmt == "paper":
-                r.pickup_place = DEKANAT_PLACE
         db.add(r)
         db.flush()
-        t = created
-        for status_, actor, comment, hours in events:
-            t = t + timedelta(hours=hours)
+        for status_, actor, comment, local_t in events:
+            t = _to_utc(local_t)
             db.add(RequestEvent(request_id=r.id, status=status_, actor=actor, comment=comment, created_at=t))
             r.updated_at = t
+            if status_ == "ready":
+                r.issued_at = t
+                r.verify_code = secrets.token_hex(8) if fmt == "electronic" else None
+                if fmt == "paper":
+                    r.pickup_place = DEKANAT_PLACE
         return r
 
-    r1 = req(kira, "СП-2026-0412", "study", "electronic", "ready", "По месту работы", 4,
-             [("submitted", "student", None, 0), ("in_progress", "staff", None, 2),
-              ("ready", "staff", "Справка подписана электронной подписью", 20)], ready=True)
-    req(kira, "СП-2026-0457", "stipend", "electronic", "in_progress", "Для оформления субсидии", 1,
-        [("submitted", "student", None, 0), ("in_progress", "staff", "Запросили данные в бухгалтерии", 5)])
-    req(timur, "СП-2026-0461", "transcript", "paper", "need_info", "Для стажировки в IT-компании", 2,
-        [("submitted", "student", None, 0),
-         ("need_info", "staff", "Уточните, нужна ли выписка на английском языке или достаточно русской версии?", 6)],
-        staff_comment="Уточните, нужна ли выписка на английском языке или достаточно русской версии?")
-    req(timur, "СП-2026-0470", "card", "paper", "submitted", None, 0, [("submitted", "student", None, 0)])
+    # Электронная справка об обучении выдается сразу, как и при заказе из кабинета
+    t_r1 = wd(4, 10, 15)
+    req(kira, "СП-2026-0412", "study", "electronic", "ready", "По месту работы",
+        [("submitted", "student", None, t_r1),
+         ("ready", "system", "Справка сформирована автоматически по данным учетной системы и подписана "
+                             "электронной подписью", t_r1)])
+    req(kira, "СП-2026-0457", "stipend", "electronic", "in_progress", "Для оформления субсидии",
+        [("submitted", "student", None, wd(1, 10, 15)),
+         ("in_progress", "staff", "Запросили данные в бухгалтерии", wd(1, 15, 5))])
+    t_ask = wd(2, 16, 15)
+    ask = "Уточните, нужна ли выписка на английском языке или достаточно русской версии?"
+    timur_req = req(timur, "СП-2026-0461", "transcript", "paper", "need_info", "Для стажировки в IT-компании",
+                    [("submitted", "student", None, wd(2, 10, 15)), ("need_info", "staff", ask, t_ask)],
+                    staff_comment=ask)
+    # Заявка "сегодня": если рабочий день только начался, она подана накануне вечером
+    t_card = wd(0, 10, 15) if ref >= _dt(ref.date(), 10, 35) else wd(1, 16, 50)
+    req(timur, "СП-2026-0470", "card", "paper", "submitted", None, [("submitted", "student", None, t_card)])
 
     # ---------------- Объявления ----------------
     ann = [
         Announcement(title="Опубликовано расписание зимней сессии",
                      body="Даты консультаций и экзаменов уже в разделе Учеба, вкладка Сессия. "
                           "Если экзамены совпадают по времени, напишите в деканат до 15 декабря.",
-                     audience="all", author_id=staff.id, created_at=_to_utc(ref - timedelta(days=2, hours=4))),
+                     audience="all", author_id=staff.id, created_at=_to_utc(wd(2, 13, 40))),
         Announcement(title="Продление студенческих билетов на весенний семестр",
                      body="Наклейки на студенческие билеты выдаем с 1 по 26 декабря в деканате. Возьмите с собой билет.",
-                     audience="all", author_id=staff.id, created_at=_to_utc(ref - timedelta(days=5))),
+                     audience="all", author_id=staff.id, created_at=_to_utc(wd(5, 11, 0))),
         Announcement(title="Встреча с научными руководителями",
                      body="В четверг в 18:40 в ауд. 1216 обсуждаем темы ВКР. Можно подключиться онлайн, ссылка в курсе.",
-                     audience="group:U4227", author_id=staff.id, created_at=_to_utc(ref - timedelta(days=1, hours=2))),
+                     audience="group:U4227", author_id=staff.id, created_at=_to_utc(wd(1, 15, 40))),
     ]
     db.add_all(ann)
 
     # ---------------- Уведомления ----------------
-    def n(user, kind, title, body, link, hours_ago, read=False):
-        created = _to_utc(ref - timedelta(hours=hours_ago))
+    # Уведомления строятся из реальных событий демо-данных теми же функциями, что и в кабинете деканата:
+    # нет изменения в расписании, нет и уведомления о нем; время уведомления равно времени события.
+    def n(user, kind, title, body, link, local_t, read=False):
+        created = _to_utc(local_t)
         db.add(Notification(user_id=user.id, kind=kind, title=title, body=body, link=link, created_at=created,
                             read_at=created if read else None))
 
-    sched_link = f"/schedule?view=week&date={mon.isoformat()}"
-    n(u_kira, "schedule", "Перенос: Бизнес-планирование", "Лекция со вторника перенесена на пятницу, 5-я пара, онлайн.", sched_link, 2)
-    n(u_kira, "schedule", "Другая аудитория в понедельник", "Стратегическое обновление: пара в ауд. 1229 вместо 2207.", sched_link, 3)
-    n(u_kira, "request", "Справка об обучении готова", "Заявка СП-2026-0412. Электронная справка с QR-кодом доступна в заявке.",
-      f"/requests/{r1.id}", 70, read=True)
-    n(u_kira, "message", "Деканат ответил на ваш вопрос", "Про перезачет дисциплины.", "/messages", 30, read=True)
-
-    n(u_timur, "schedule", "Отмена: Физика в понедельник", "Лекция в 8:20 отменена, преподаватель заболел.", sched_link, 1)
-    n(u_timur, "schedule", "Перенос: Алгоритмы и структуры данных", "Практика с четверга перенесена на субботу, 3-я пара.", sched_link, 4)
-    n(u_timur, "request", "Нужно уточнение по заявке СП-2026-0461", "Деканат задал вопрос по выписке оценок.", None, 40)
+    users = {kira.group_code: u_kira, timur.group_code: u_timur}
+    db.flush()
+    for i, c in enumerate(valid):
+        t = db.get(LessonTemplate, c.template_id)
+        title, body = S.change_notice(t.discipline.name, t.pair_no, c)
+        # Деканат сообщает об изменении заранее: в рабочий день до начала пары
+        k, sent = 1, wd(1, 16, 30 + i)
+        while sent >= S.lesson_start(c.date, t.pair_no) and k < 15:
+            k += 1
+            sent = wd(k, 16, 30 + i)
+        n(users[t.group_code], "schedule", title, body, f"/schedule?date={c.date.isoformat()}", sent)
+    n(u_kira, "message", "Деканат ответил на ваш вопрос", "Про перезачет дисциплины.", "/messages", wd(1, 12, 10), read=True)
+    n(u_timur, "request", "Нужно уточнение по заявке СП-2026-0461", ask, f"/requests/{timur_req.id}", t_ask)
     # Каждое объявление приходит уведомлением всем, кому оно адресовано (как при публикации из кабинета деканата)
     for a in ann:
         for u, st in ((u_kira, kira), (u_timur, timur)):
             if a.audience == "all" or a.audience == f"group:{st.group_code}":
-                hours = (ref - (a.created_at + timedelta(hours=3))).total_seconds() / 3600
-                n(u, "news", a.title, a.body[:200], "/notifications?kind=news", hours, read=hours > 48)
+                local_t = a.created_at + timedelta(hours=3)
+                n(u, "news", a.title, a.body[:200], "/notifications?kind=news", local_t, read=(ref - local_t).days >= 2)
     db.flush()
-    # ссылка на заявку Тимура
-    timur_req = db.scalar(select(StudentRequest).where(StudentRequest.number == "СП-2026-0461"))
-    for notif in db.scalars(select(Notification).where(Notification.user_id == u_timur.id, Notification.kind == "request")):
-        notif.link = f"/requests/{timur_req.id}"
 
     # ---------------- Переписка с деканатом ----------------
     db.add_all([
         Message(student_id=kira.id, author_id=u_kira.id, from_staff=False, read_by_student=True, read_by_staff=True,
                 body="Здравствуйте! Можно ли перезачесть английский из бакалавриата?",
-                created_at=_to_utc(ref - timedelta(hours=26))),
+                created_at=_to_utc(wd(1, 11, 40))),
         Message(student_id=kira.id, author_id=staff.id, from_staff=True, read_by_student=True, read_by_staff=True,
                 body="Здравствуйте, Кира! В магистратуре перезачет возможен, если совпадает объем часов. "
                      "Напишите сюда, в каком году и с каким количеством часов сдавали английский, мы сверим "
                      "с учебным планом и ответим за 5 рабочих дней.",
-                created_at=_to_utc(ref - timedelta(hours=24, minutes=30))),
+                created_at=_to_utc(wd(1, 12, 10))),
         Message(student_id=timur.id, author_id=u_timur.id, from_staff=False, read_by_student=True, read_by_staff=False,
                 body="Добрый день! Я потерял студенческий, заявку на дубликат отправил. Нужно ли что-то еще?",
-                created_at=_to_utc(ref - timedelta(hours=1))),
+                created_at=_to_utc(t_card + timedelta(minutes=10))),
     ])
-    db.commit()
+    if commit:
+        db.commit()
 
 
 def init_db(reset: bool = False) -> None:
@@ -352,60 +386,90 @@ def init_db(reset: bool = False) -> None:
     Base.metadata.create_all(engine)
     with SessionLocal() as db:
         if db.scalar(select(User.id).limit(1)) is None:
-            seed(db)
-            db.merge(Meta(key="seeded_on", value=now_local().date().isoformat()))
+            seed(db, commit=False)
+            _meta_set(db, "seeded_on", now_local().date().isoformat())
             db.commit()
+
+
+def _meta_set(db, key: str, value: str) -> None:
+    """Записать служебное значение одной командой (INSERT ... ON CONFLICT): параллельные запросы
+    и сброс демо не спотыкаются об уникальность ключа, как при чтении и последующей вставке."""
+    name = db.get_bind().dialect.name
+    if name == "sqlite":
+        from sqlalchemy.dialects.sqlite import insert
+    elif name == "postgresql":
+        from sqlalchemy.dialects.postgresql import insert
+    else:
+        db.merge(Meta(key=key, value=value))
+        return
+    stmt = insert(Meta).values(key=key, value=value)
+    db.execute(stmt.on_conflict_do_update(index_elements=[Meta.key], set_={"value": value}))
 
 
 _fresh_lock = threading.Lock()
 _checked_on: str | None = None
-_last_activity: float | None = None
+ACTIVITY_WRITE_EVERY = timedelta(seconds=60)
 
 
 def reset_demo_keep_sessions() -> None:
-    """Пересоздает демо-данные, но сохраняет открытые сеансы: тот, кто сейчас в кабинете, не вылетит."""
-    from .models import AuthSession
+    """Пересоздает демо-данные, сохраняя открытые сеансы: тот, кто сейчас в кабинете, не вылетит.
+
+    Таблицы не удаляются: строки стираются и создаются заново в одной транзакции. Пока она идет,
+    другие запросы видят прежние данные (SQLite в режиме WAL), а после фиксации сразу новые.
+    Ошибок вида "нет такой таблицы" у параллельных запросов не бывает."""
     with SessionLocal() as db:
         saved = [(s.token_hash, s.csrf_token, s.user.login, s.created_at, s.expires_at)
-                 for s in db.scalars(select(AuthSession))]
-    init_db(reset=True)
-    with SessionLocal() as db:
+                 for s in db.scalars(select(AuthSession).options(selectinload(AuthSession.user)))]
+        for table in reversed(Base.metadata.sorted_tables):
+            db.execute(table.delete())
+        seed(db, commit=False)
+        db.flush()
         ids = {u.login: u.id for u in db.scalars(select(User))}
         for token_hash, csrf, login, created, expires in saved:
             if login in ids:
                 db.add(AuthSession(token_hash=token_hash, csrf_token=csrf, user_id=ids[login],
                                    created_at=created, expires_at=expires))
+        _meta_set(db, "seeded_on", now_local().date().isoformat())
+        _meta_set(db, "last_activity", utcnow().isoformat())
         db.commit()
     from .security import reset_login_limits
     reset_login_limits()
 
 
-def ensure_demo_fresh() -> bool:
+def ensure_demo_fresh(active: bool = False) -> bool:
     """Держит демо-данные свежими для общих тестовых аккаунтов. База пересоздается:
     - раз в сутки (по Москве): даты в расписании, дедлайнах и заявках всегда актуальны;
     - после DEMO_IDLE_RESET_MINUTES минут тишины: следующий член жюри приходит на чистый кабинет,
       не видя изменений предыдущего, а тот, кто работает прямо сейчас, ничего не теряет.
+
+    active: запрос от посетителя с сеансом. Только такие запросы считаются активностью, поэтому
+    проверки мониторинга (HEAD /healthz) не мешают сбросу. Отметка активности хранится в базе,
+    а не в памяти процесса, поэтому сброс работает одинаково при нескольких процессах.
     Возвращает True, если был сброс."""
-    global _checked_on, _last_activity
+    global _checked_on
     from . import config
     if not config.DEMO_DAILY_RESET:
         return False
-    import time as _time
-    now = _time.monotonic()
     today = now_local().date().isoformat()
-    idle = (_last_activity is not None and config.DEMO_IDLE_RESET_MINUTES > 0
-            and now - _last_activity > config.DEMO_IDLE_RESET_MINUTES * 60)
-    _last_activity = now
-    if _checked_on == today and not idle:
+    if _checked_on == today and not active:
         return False
     with _fresh_lock:
+        now = utcnow()
         with SessionLocal() as db:
             try:
-                seeded = db.get(Meta, "seeded_on")
+                meta = {m.key: m.value for m in db.scalars(select(Meta).where(Meta.key.in_(("seeded_on", "last_activity"))))}
             except Exception:
-                seeded = None
-            stale_day = seeded is None or seeded.value != today
-        reset = stale_day or idle
+                meta = {}
+            last = datetime.fromisoformat(meta["last_activity"]) if meta.get("last_activity") else None
+            idle = (active and last is not None and config.DEMO_IDLE_RESET_MINUTES > 0
+                    and now - last > timedelta(minutes=config.DEMO_IDLE_RESET_MINUTES))
+            reset = meta.get("seeded_on") != today or idle
+            if not reset and active and (last is None or now - last >= ACTIVITY_WRITE_EVERY):
+                try:
+                    _meta_set(db, "last_activity", now.isoformat())
+                    db.commit()
+                except Exception:  # отметка активности не должна ломать запрос посетителя
+                    db.rollback()
         if reset:
             reset_demo_keep_sessions()
         _checked_on = today

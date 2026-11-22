@@ -43,7 +43,7 @@
 
   {% if 'paper' in t.formats and t.kind == 'certificate' %}
   <div class="field{% if errors.copies %} has-error{% endif %}" data-copies>
-    <label for="copies">Количество экземпляров (для бумажной)</label>
+    <label for="copies">Количество экземпляров{% if t.formats|length > 1 %} (для бумажной){% endif %}</label>
     <input class="input input-short" id="copies" name="copies" type="number" min="1" max="5" value="{{ form.copies or 1 }}">
     {% if errors.copies %}<p class="field-error">{{ errors.copies }}</p>{% endif %}
   </div>

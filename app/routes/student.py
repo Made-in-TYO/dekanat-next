@@ -353,7 +353,10 @@ def message_send(request: Request, body: str = Form(""), csrf_token: str = Form(
     check_csrf(s, csrf_token)
     body = body.strip()[:2000]
     if not body:
-        return RedirectResponse("/messages", status_code=303)
+        items = db.scalars(select(Message).options(selectinload(Message.author)).where(Message.student_id == _student(s).id)
+                           .order_by(Message.created_at)).all()
+        return render(request, "student/messages.html", {"nav": "messages", "items": items,
+                                                         "chat_error": "Напишите текст вопроса"}, status_code=400, db=db)
     db.add(Message(student_id=_student(s).id, author_id=s.user_id, from_staff=False, body=body, read_by_student=True))
     db.commit()
     return RedirectResponse("/messages?ok=sent#last", status_code=303)

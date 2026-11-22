@@ -310,7 +310,7 @@ def test_staff_cannot_change_past_lessons(staff):
     token = csrf(staff, "/staff/schedule")
     r = staff.post("/staff/schedule", data={"template_id": ts[0].id, "day": d.isoformat(), "change_type": "cancelled",
                                             "csrf_token": token})
-    assert r.status_code == 400 and "уже прошло" in r.text
+    assert r.status_code == 400 and "уже началось или прошло" in r.text
 
 
 def test_grammar_so_sredy():
@@ -351,7 +351,7 @@ def test_paper_study_certificate_still_goes_to_staff(kira):
                                      "csrf_token": token}, follow_redirects=False)
     rid = int(re.search(r"/requests/(\d+)", r.headers["location"]).group(1))
     assert _req_by_id(rid).status == "submitted"
-    assert "Готово будет примерно" in kira.get(f"/requests/{rid}").text
+    assert "Будет готово" in kira.get(f"/requests/{rid}").text
 
 
 def _req_by_id(rid):
@@ -388,11 +388,13 @@ def test_board_hints():
 
 
 def test_idle_reset_keeps_open_sessions(kira, staff):
-    import time
+    from app.services.timeutil import utcnow
     token = csrf(staff, "/staff/announcements")
     staff.post("/staff/announcements", data={"title": "Пока кто-то смотрел", "body": "Текст", "audience": "all",
                                              "csrf_token": token})
-    seed_module._last_activity = time.monotonic() - 31 * 60  # полчаса без посетителей
+    with SessionLocal() as db:  # полчаса без посетителей
+        db.merge(Meta(key="last_activity", value=(utcnow() - timedelta(minutes=31)).isoformat()))
+        db.commit()
     html = kira.get("/home").text                              # тот же сеанс, без повторного входа
     assert "Привет, Кира" in html
     assert "Пока кто-то смотрел" not in kira.get("/notifications").text

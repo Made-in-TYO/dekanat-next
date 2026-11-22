@@ -2,15 +2,15 @@
 import os
 
 from fastapi import APIRouter, Depends, Request
-from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
 from ..db import get_db
 from ..models import Student, StudentRequest
-from ..security import get_session
+from ..security import client_ip, get_session, is_https
 from ..services.catalog import TYPES
-from ..web import render
+from ..web import ASSET_VERSION, render
 
 router = APIRouter()
 STATIC = os.path.join(os.path.dirname(os.path.dirname(__file__)), "static")
@@ -65,8 +65,9 @@ def manifest():
 
 @router.get("/sw.js")
 def service_worker():
-    return FileResponse(os.path.join(STATIC, "js", "sw.js"), media_type="application/javascript",
-                        headers={"Cache-Control": "no-cache"})
+    with open(os.path.join(STATIC, "js", "sw.js"), encoding="utf-8") as f:
+        code = f.read().replace("__ASSET_VERSION__", ASSET_VERSION)
+    return Response(code, media_type="application/javascript", headers={"Cache-Control": "no-cache"})
 
 
 @router.get("/offline")
@@ -75,5 +76,7 @@ def offline(request: Request):
 
 
 @router.api_route("/healthz", methods=["GET", "HEAD"])
-def healthz():
-    return JSONResponse({"status": "ok"})
+def healthz(request: Request):
+    """Проверка для мониторинга и для настройки за прокси: какой адрес клиента и какую схему видит приложение.
+    Адрес здесь всегда собственный адрес того, кто спрашивает, поэтому ничего чужого не раскрывается."""
+    return JSONResponse({"status": "ok", "your_ip": client_ip(request), "https": is_https(request)})

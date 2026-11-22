@@ -24,15 +24,16 @@
 
   <form method="post" action="/messages" class="chat-form" data-submit-once>
     <input type="hidden" name="csrf_token" value="{{ csrf }}">
+    {% if chat_error %}<p class="field-error chat-error" id="body-err" role="alert">{{ chat_error }}</p>{% endif %}
     <label for="body" class="sr-only">Сообщение</label>
-    <textarea class="input" id="body" name="body" rows="2" maxlength="2000" required placeholder="Напишите вопрос деканату"></textarea>
+    <textarea class="input" id="body" name="body" rows="2" maxlength="2000" required placeholder="Напишите вопрос деканату"{% if chat_error %} aria-invalid="true" aria-describedby="body-err" autofocus{% endif %}></textarea>
     <button class="btn btn-primary" type="submit" data-busy-text="...">{{ icon('send') }}<span>Отправить</span></button>
   </form>
 </section>
 
 <section class="section faq">
   <h2>Частые вопросы</h2>
-  <details><summary>Как получить справку об обучении?</summary><p>В разделе <a href="/requests/new?type=study">Заявки</a>. Электронная справка с QR-кодом готова за 1 рабочий день, ее принимают банки и работодатели.</p></details>
+  <details><summary>Как получить справку об обучении?</summary><p>В разделе <a href="/requests/new?type=study">Заявки</a>. Электронная справка с QR-кодом готова сразу после заказа, ее принимают банки и работодатели. Бумажная будет готова за 1 рабочий день.</p></details>
   <details><summary>Пропустил занятия по болезни, что делать?</summary><p>Передайте преподавателю медицинскую справку и напишите сюда, если пропуск пришелся на контрольную. Деканат согласует пересдачу.</p></details>
   <details><summary>Совпали экзамены в сессию</summary><p>Подайте заявление на <a href="/requests/new?type=schedule">индивидуальный график сессии</a> до 15 декабря.</p></details>
 </section>

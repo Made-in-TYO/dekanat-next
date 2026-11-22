@@ -86,6 +86,7 @@ def test_schedule_change_notifies_only_that_group(staff):
     with SessionLocal() as db:
         t = db.scalar(select(LessonTemplate).where(LessonTemplate.group_code == "P3214").limit(1))
         before_kira = db.query(Notification).join(User).filter(User.login == "kira").count()
+        before_timur = db.query(Notification).join(User).filter(User.login == "timur", Notification.title.like("Другая аудитория%")).count()
     day = date.today() + timedelta(days=(t.weekday - date.today().weekday()) % 7 + 7)
     token = csrf(staff, "/staff/schedule")
     r = staff.post("/staff/schedule", data={"template_id": t.id, "day": day.isoformat(), "change_type": "room",
@@ -95,7 +96,7 @@ def test_schedule_change_notifies_only_that_group(staff):
     with SessionLocal() as db:
         timur_n = db.query(Notification).join(User).filter(User.login == "timur", Notification.title.like("Другая аудитория%")).count()
         after_kira = db.query(Notification).join(User).filter(User.login == "kira").count()
-    assert timur_n == 1 and after_kira == before_kira
+    assert timur_n == before_timur + 1 and after_kira == before_kira
 
 
 def test_announcement_reaches_students(staff, kira):

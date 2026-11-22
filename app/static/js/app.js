@@ -103,15 +103,6 @@
     });
   });
 
-  // ---------- Демо-аккаунты на странице входа ----------
-  document.querySelectorAll("[data-fill-login]").forEach(function (b) {
-    b.addEventListener("click", function () {
-      document.getElementById("login").value = b.getAttribute("data-fill-login");
-      document.getElementById("password").value = b.getAttribute("data-fill-password");
-      document.querySelector(".login-card [type=submit]").focus();
-    });
-  });
-
   // ---------- Печать справки ----------
   document.querySelectorAll("[data-print]").forEach(function (b) {
     b.addEventListener("click", function () { window.print(); });
@@ -156,8 +147,10 @@
   var copies = document.querySelector("[data-copies]");
   if (copies) {
     var upd = function () {
+      // Если выбора формата нет (справка бывает только бумажной), поле видно всегда
+      var radios = document.querySelectorAll("input[data-fmt]");
       var paper = document.querySelector("input[data-fmt][value=paper]");
-      copies.hidden = !(paper && paper.checked);
+      copies.hidden = radios.length > 0 && !(paper && paper.checked);
     };
     document.querySelectorAll("input[data-fmt]").forEach(function (r) { r.addEventListener("change", upd); });
     upd();

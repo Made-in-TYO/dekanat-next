@@ -9,14 +9,14 @@ from sqlalchemy.orm import Session, selectinload
 
 from .. import config
 from ..db import get_db
-from .common import IdPath
+from .common import IdForm, IdPath, SmallIntForm
 from ..models import (Announcement, AuthSession, LessonChange, LessonTemplate, Message, RequestEvent, Student,
                       StudentRequest)
 from ..security import check_csrf, require_staff
 from ..services import schedule as S
 from ..services.catalog import DEKANAT_PLACE, STATUS, TYPES, staff_transitions, status_info
 from ..services.notify import notify, notify_group
-from ..services.timeutil import fmt_date, from_day, on_day, today, utcnow
+from ..services.timeutil import fmt_date, now_local, today, utcnow
 from ..web import render
 
 router = APIRouter(prefix="/staff")
@@ -89,7 +89,8 @@ def request_status(request: Request, rid: IdPath, new_status: str = Form(...), c
     if new_status in ("need_info", "rejected") and not comment:
         return render(request, "staff/request_detail.html", {
             "nav": "requests", "r": r, "t": TYPES[r.type_code], "transitions": staff_transitions(r),
-            "error": "Напишите студенту вопрос или причину отказа", "unanswered": _unanswered(db)},
+            "error": "Напишите студенту вопрос или причину отказа", "unanswered": _unanswered(db),
+            "form": {"new_status": new_status, "comment": comment}},
             status_code=400, db=db)
     r.status = new_status
     r.updated_at = utcnow()
@@ -168,10 +169,15 @@ def thread_reply(request: Request, student_id: IdPath, body: str = Form(""), csr
     if st is None:
         raise HTTPException(status_code=404)
     body = body.strip()[:2000]
-    if body:
-        db.add(Message(student_id=st.id, author_id=s.user_id, from_staff=True, body=body, read_by_staff=True))
-        notify(db, st.user_id, "message", "Деканат ответил на ваш вопрос", body[:140], "/messages")
-        db.commit()
+    if not body:
+        items = db.scalars(select(Message).options(selectinload(Message.author)).where(Message.student_id == st.id)
+                           .order_by(Message.created_at)).all()
+        return render(request, "staff/thread.html", {"nav": "messages", "st": st, "items": items,
+                                                     "unanswered": _unanswered(db), "chat_error": "Напишите текст ответа"},
+                      status_code=400, db=db)
+    db.add(Message(student_id=st.id, author_id=s.user_id, from_staff=True, body=body, read_by_staff=True))
+    notify(db, st.user_id, "message", "Деканат ответил на ваш вопрос", body[:140], "/messages")
+    db.commit()
     return RedirectResponse(f"/staff/messages/{st.id}?ok=sent#last", status_code=303)
 
 
@@ -211,7 +217,7 @@ def _schedule_ctx(db: Session, group: str, d: date, **extra) -> dict:
     groups = _groups(db)
     ctx = {"nav": "schedule", "groups": groups, "group": group, "d": d, "lessons": S.lessons_for_date(db, group, d),
            "PAIRS": S.PAIRS, "timedelta": timedelta, "day_note": S.day_note(d), "unanswered": _unanswered(db),
-           "errors": {}, "form": {}}
+           "errors": {}, "form": {}, "now": now_local()}
     ctx.update(extra)
     return ctx
 
@@ -235,9 +241,9 @@ def _when(d: date, pair_no: int) -> str:
 
 
 @router.post("/schedule")
-def schedule_change(request: Request, template_id: int = Form(...), day: str = Form(...), change_type: str = Form(...),
+def schedule_change(request: Request, template_id: IdForm, day: str = Form(...), change_type: str = Form(...),
                     new_room: str = Form(""), new_teacher: str = Form(""), new_date: str = Form(""),
-                    new_pair_no: int = Form(0), note: str = Form(""), csrf_token: str = Form(""),
+                    new_pair_no: SmallIntForm = 0, note: str = Form(""), csrf_token: str = Form(""),
                     s: AuthSession = Depends(require_staff), db: Session = Depends(get_db)):
     check_csrf(s, csrf_token)
     t = db.get(LessonTemplate, template_id)
@@ -253,8 +259,9 @@ def schedule_change(request: Request, template_id: int = Form(...), day: str = F
     existing = db.scalar(select(LessonChange).where(LessonChange.template_id == t.id, LessonChange.date == d))
     name = t.discipline.name
     when = _when(d, t.pair_no)
-    if d < today():
-        ctx = _schedule_ctx(db, t.group_code, d, errors={"day": "Это занятие уже прошло, менять его нельзя"},
+    # Сравниваем со временем начала пары, а не только с датой: идущую или прошедшую сегодня пару менять поздно
+    if S.lesson_start(d, t.pair_no) <= now_local():
+        ctx = _schedule_ctx(db, t.group_code, d, errors={"day": "Это занятие уже началось или прошло, менять его нельзя"},
                             error_template=t.id, form={"change_type": change_type})
         return render(request, "staff/schedule.html", ctx, status_code=400, db=db)
 
@@ -285,13 +292,13 @@ def schedule_change(request: Request, template_id: int = Form(...), day: str = F
             errors["new_date"] = "Укажите новую дату"
         elif new_pair_no not in S.PAIRS:
             errors["new_date"] = "Выберите пару"
-        elif nd < today():
+        elif S.lesson_start(nd, new_pair_no) <= now_local():
             errors["new_date"] = "Нельзя перенести занятие в прошлое"
         elif not S.is_class_day(nd):
             errors["new_date"] = S.day_note(nd) or "В этот день занятий нет (воскресенье)"
         elif nd == d and new_pair_no == t.pair_no:
             errors["new_date"] = "Новая дата и пара совпадают с текущими"
-        elif S.slot_taken(db, t.group_code, nd, new_pair_no):
+        elif S.slot_taken(db, t.group_code, nd, new_pair_no, ignore_change_id=existing.id if existing else None):
             errors["new_date"] = f"У группы {t.group_code} в это время уже есть пара"
     if errors:
         ctx = _schedule_ctx(db, t.group_code, d, errors=errors, error_template=t.id,
@@ -310,21 +317,7 @@ def schedule_change(request: Request, template_id: int = Form(...), day: str = F
     elif change_type == "moved":
         c.new_date, c.new_pair_no = nd, new_pair_no
     db.add(c)
-    if change_type == "cancelled":
-        title, body = f"Отмена: {name}", f"{when}: пара отменена."
-    elif change_type == "room":
-        title, body = f"Другая аудитория: {name}", f"{when}: пара в ауд. {c.new_room}."
-    elif change_type == "teacher":
-        title, body = f"Замена преподавателя: {name}", f"{when}: пару ведет {c.new_teacher}."
-    elif change_type == "online":
-        title, body = f"Онлайн: {name}", f"{when}: пара пройдет онлайн."
-    else:
-        title = f"Перенос: {name}"
-        body = (f"Пара {from_day(d)}, {S.pair_name(t.pair_no)}, перенесена "
-                f"{on_day(c.new_date)}, {S.pair_name(c.new_pair_no)}.")
-    if c.note:
-        body += f" {c.note}"
-    body = body[:1].upper() + body[1:]
+    title, body = S.change_notice(name, t.pair_no, c)
     notify_group(db, t.group_code, "schedule", title, body, f"/schedule?date={d.isoformat()}")
     db.commit()
     return RedirectResponse(f"/staff/schedule?group={t.group_code}&date={d.isoformat()}&ok=change", status_code=303)

@@ -1,4 +1,5 @@
 """Шаблоны и общий контекст страниц."""
+import hashlib
 import os
 from datetime import datetime
 
@@ -6,15 +7,30 @@ from fastapi import Request
 from fastapi.templating import Jinja2Templates
 from markupsafe import Markup
 
+from . import config
 from .services import timeutil
-from .services.catalog import FORMAT_LABELS, TYPES, is_instant, ready_eta, status_info, status_label, track_labels
+from .services.catalog import FORMAT_LABELS, TYPES, eta_for, is_instant, status_info, status_label, track_labels
 from .services.notify import unread_count
 
 templates = Jinja2Templates(directory=os.path.join(os.path.dirname(__file__), "templates"))
 env = templates.env
 env.autoescape = True
 
-ASSET_VERSION = "9"
+STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
+VERSIONED_ASSETS = ("css/app.css", "js/app.js", "js/theme.js", "js/sw.js", "icons/sprite.svg", "img/logo.svg")
+
+
+def asset_version() -> str:
+    """Версия оформления считается по содержимому файлов: после любой правки CSS или JS браузеры
+    и service worker сами возьмут новые файлы, вручную поднимать номер не нужно."""
+    h = hashlib.sha256()
+    for rel in VERSIONED_ASSETS:
+        with open(os.path.join(STATIC_DIR, rel), "rb") as f:
+            h.update(f.read())
+    return h.hexdigest()[:10]
+
+
+ASSET_VERSION = asset_version()
 
 
 def icon(name: str, cls: str = "ic") -> Markup:
@@ -43,8 +59,8 @@ def _ago(dt_utc: datetime | None) -> str:
     return timeutil.fmt_dt(dt)
 
 
-env.globals.update(week_label=timeutil.week_label, greeting=timeutil.greeting, icon=icon, TYPES=TYPES, FORMAT_LABELS=FORMAT_LABELS, status_label=status_label, status_info=status_info,
-                   track_labels=track_labels, ready_eta=ready_eta, is_instant=is_instant,
+env.globals.update(demo_idle_minutes=config.DEMO_IDLE_RESET_MINUTES, week_label=timeutil.week_label, greeting=timeutil.greeting, icon=icon, TYPES=TYPES, FORMAT_LABELS=FORMAT_LABELS, status_label=status_label, status_info=status_info,
+                   track_labels=track_labels, eta_for=eta_for, is_instant=is_instant,
                    asset_v=ASSET_VERSION, plural=timeutil.plural)
 env.filters.update(
     local=_local,
@@ -85,7 +101,6 @@ FLASH = {
     "announced": "Объявление опубликовано и разослано студентам",
     "change": "Изменение в расписании сохранено, группа получила уведомление",
     "reverted": "Занятие возвращено к обычному расписанию, группа получила уведомление",
-    "done": "Отметка сохранена",
     "readall": "Все уведомления прочитаны",
 }
 

@@ -20,7 +20,9 @@
     {% set has_err = errors and error_template == v.template_id %}
     <li>
       <ol class="timeline timeline-compact">{{ ui.lesson_row(v) }}</ol>
-      {% if v.status != 'moved_in' %}
+      {% if v.status != 'moved_in' and v.start_dt <= now and not has_err %}
+      <p class="muted small change-locked">Занятие уже началось или прошло, изменить его нельзя</p>
+      {% elif v.status != 'moved_in' %}
       <details class="change-form"{% if has_err %} open{% endif %}>
         <summary>{{ icon('calendar-clock') }}{{ 'Изменить еще раз или вернуть как было' if v.changed else 'Изменить это занятие' }}</summary>
         <form method="post" action="/staff/schedule" class="form" data-submit-once data-change-form novalidate>
@@ -41,7 +43,7 @@
           <div class="field{% if has_err and errors.new_teacher %} has-error{% endif %}" data-for="teacher" hidden><label>Кто ведет
             <input class="input" name="new_teacher" maxlength="128" value="{{ form.new_teacher if has_err else '' }}"{% if has_err and errors.new_teacher %} aria-invalid="true" autofocus{% endif %}></label></div>
           <div class="field-row{% if has_err and errors.new_date %} has-error{% endif %}" data-for="moved" hidden>
-            <label>Новая дата <input class="input" type="date" name="new_date" min="{{ today.isoformat() }}"
+            <label>Новая дата <input class="input" type="date" name="new_date" min="{{ now.date().isoformat() }}"
                    value="{{ form.new_date if has_err and form.new_date else (d + timedelta(days=1)).isoformat() }}"{% if has_err and errors.new_date %} aria-invalid="true" autofocus{% endif %}></label>
             <label>Пара <select class="input" name="new_pair_no">{% for n, (a, b) in PAIRS.items() %}<option value="{{ n }}" {% if has_err and form.new_pair_no == n %}selected{% endif %}>{{ n }}-я, {{ a|hm }}</option>{% endfor %}</select></label>
           </div>
