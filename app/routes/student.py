@@ -181,7 +181,7 @@ def _number_for(request_id: int) -> str:
 
 
 @router.post("/requests")
-def request_create(request: Request, type_code: str = Form(...), purpose: str = Form(""), copies: int = Form(1),
+def request_create(request: Request, type_code: str = Form(...), purpose: str = Form(""), copies: str = Form("1"),
                    fmt: str = Form("electronic"), comment: str = Form(""), csrf_token: str = Form(""),
                    s: AuthSession = Depends(require_student), db: Session = Depends(get_db)):
     check_csrf(s, csrf_token)
@@ -196,15 +196,19 @@ def request_create(request: Request, type_code: str = Form(...), purpose: str = 
         errors["purpose"] = "Укажите, для чего нужен документ" if t.kind == "certificate" else "Укажите причину"
     if fmt not in t.formats:
         errors["fmt"] = "Выберите формат из предложенных"
-    if fmt == "paper" and t.kind == "certificate" and not 1 <= copies <= 5:
-        errors["copies"] = "Можно заказать от 1 до 5 экземпляров"
+    # Количество разбираем здесь, а не в типе параметра: при "1.5" или "два" студент получает
+    # подсказку у поля и не теряет уже заполненную цель и комментарий
+    copies_raw = copies.strip()[:32]
+    n_copies = int(copies_raw) if copies_raw.isascii() and copies_raw.isdigit() else 0
+    if fmt == "paper" and t.kind == "certificate" and not 1 <= n_copies <= 5:
+        errors["copies"] = "Введите целое число от 1 до 5"
     if errors:
         return render(request, "student/request_new.html", {
             "nav": "requests", "t": t, "errors": errors,
-            "form": {"purpose": purpose, "copies": copies, "fmt": fmt, "comment": comment}}, status_code=400, db=db)
+            "form": {"purpose": purpose, "copies": copies_raw, "fmt": fmt, "comment": comment}}, status_code=400, db=db)
     st = _student(s)
     r = StudentRequest(number=f"tmp-{secrets.token_hex(8)}", student_id=st.id, type_code=t.code,
-                       purpose=purpose or None, copies=copies if (fmt == "paper" and t.kind == "certificate") else 1,
+                       purpose=purpose or None, copies=n_copies if (fmt == "paper" and t.kind == "certificate") else 1,
                        fmt=fmt, comment=comment or None, status="submitted")
     db.add(r)
     db.flush()

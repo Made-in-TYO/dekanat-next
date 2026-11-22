@@ -138,6 +138,8 @@ def week_label(d: date) -> str:
     from .. import config
     end = datetime.strptime(config.SEMESTER_END, "%Y-%m-%d").date()
     start = datetime.strptime(SEMESTER_START, "%Y-%m-%d").date()
+    if d > datetime.strptime(config.SESSION_END, "%Y-%m-%d").date():
+        return "после сессии"
     if d > end:
         return "зимняя сессия"
     if d < start:

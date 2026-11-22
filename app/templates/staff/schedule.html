@@ -20,7 +20,7 @@
     {% set has_err = errors and error_template == v.template_id %}
     <li>
       <ol class="timeline timeline-compact">{{ ui.lesson_row(v) }}</ol>
-      {% if v.status != 'moved_in' and v.start_dt <= now and not has_err %}
+      {% if v.status != 'moved_in' and v.locked(now) and not has_err %}
       <p class="muted small change-locked">Занятие уже началось или прошло, изменить его нельзя</p>
       {% elif v.status != 'moved_in' %}
       <details class="change-form"{% if has_err %} open{% endif %}>
@@ -30,15 +30,16 @@
           <input type="hidden" name="template_id" value="{{ v.template_id }}">
           <input type="hidden" name="day" value="{{ d.isoformat() }}">
           {% if has_err %}<p class="alert alert-bad" role="alert">{{ icon('triangle-alert') }}<span>{{ errors.values()|first }}</span></p>{% endif %}
-          {% set ct = form.change_type if has_err else 'room' %}
+          {% set grid_online = v.online and v.status != 'online' %}
+          {% set ct = form.change_type if has_err else ((('revert' if v.changed else 'cancelled')) if grid_online else 'room') %}
           <div class="field"><label>Что меняем
             <select class="input" name="change_type" data-change-type>
               {% if v.changed %}<option value="revert">Вернуть как было</option>{% endif %}
               {% for val, label in [('room', 'Другая аудитория'), ('cancelled', 'Отмена'), ('moved', 'Перенос на другую дату'), ('teacher', 'Замена преподавателя'), ('online', 'Перевести в онлайн')] %}
-              <option value="{{ val }}" {% if has_err and ct == val %}selected{% endif %}>{{ label }}</option>
+              {% if not (grid_online and val in ('room', 'online')) %}<option value="{{ val }}" {% if ct == val and (has_err or grid_online) %}selected{% endif %}>{{ label }}</option>{% endif %}
               {% endfor %}
             </select></label></div>
-          <div class="field{% if has_err and errors.new_room %} has-error{% endif %}" data-for="room"><label>Новая аудитория
+          <div class="field{% if has_err and errors.new_room %} has-error{% endif %}" data-for="room"{% if ct != 'room' %} hidden{% endif %}><label>Новая аудитория
             <input class="input" name="new_room" maxlength="32" value="{{ form.new_room if has_err else '' }}"{% if has_err and errors.new_room %} aria-invalid="true" autofocus{% endif %}></label></div>
           <div class="field{% if has_err and errors.new_teacher %} has-error{% endif %}" data-for="teacher" hidden><label>Кто ведет
             <input class="input" name="new_teacher" maxlength="128" value="{{ form.new_teacher if has_err else '' }}"{% if has_err and errors.new_teacher %} aria-invalid="true" autofocus{% endif %}></label></div>
@@ -56,7 +57,11 @@
     {% endfor %}
   </ul>
   {% else %}
+    {% if lessons %}
+    {{ ui.empty('calendar-days', 'Обычных пар для изменения нет', 'В этот день у группы только консультации и экзамены сессии. Выберите другую дату.') }}
+    {% else %}
     {{ ui.empty('calendar-days', 'В этот день у группы нет занятий', (day_note ~ '. ' if day_note else '') ~ 'Выберите другую дату.') }}
+    {% endif %}
   {% endif %}
 </section>
 {% endblock %}

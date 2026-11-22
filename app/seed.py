@@ -359,7 +359,7 @@ def seed(db, commit: bool = True) -> None:
         for u, st in ((u_kira, kira), (u_timur, timur)):
             if a.audience == "all" or a.audience == f"group:{st.group_code}":
                 local_t = a.created_at + timedelta(hours=3)
-                n(u, "news", a.title, a.body[:200], "/notifications?kind=news", local_t, read=(ref - local_t).days >= 2)
+                n(u, "news", a.title, a.body, "/notifications?kind=news", local_t, read=(ref - local_t).days >= 2)
     db.flush()
 
     # ---------------- Переписка с деканатом ----------------
@@ -418,8 +418,10 @@ def reset_demo_keep_sessions() -> None:
     другие запросы видят прежние данные (SQLite в режиме WAL), а после фиксации сразу новые.
     Ошибок вида "нет такой таблицы" у параллельных запросов не бывает."""
     with SessionLocal() as db:
+        # Сохраняем только действующие сеансы: истекшие все равно не дают входа и только копились бы
         saved = [(s.token_hash, s.csrf_token, s.user.login, s.created_at, s.expires_at)
-                 for s in db.scalars(select(AuthSession).options(selectinload(AuthSession.user)))]
+                 for s in db.scalars(select(AuthSession).options(selectinload(AuthSession.user))
+                                     .where(AuthSession.expires_at > utcnow()))]
         for table in reversed(Base.metadata.sorted_tables):
             db.execute(table.delete())
         seed(db, commit=False)

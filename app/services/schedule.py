@@ -31,6 +31,7 @@ EXAM_DURATION = {"exam": timedelta(hours=3), "consultation": timedelta(minutes=9
 
 SEMESTER_START = date.fromisoformat(config.SEMESTER_START)
 SEMESTER_END = date.fromisoformat(config.SEMESTER_END)
+SESSION_END = date.fromisoformat(config.SESSION_END)
 HOLIDAYS = {date.fromisoformat(k): v for k, v in config.HOLIDAYS.items()}
 
 
@@ -62,6 +63,7 @@ class LessonView:
     change_id: int | None = None
     custom_start: time | None = None   # для экзаменов: время не по сетке пар
     custom_end: time | None = None
+    moved_start: datetime | None = None  # для перенесенной пары: когда она пройдет на новом месте
     extra: dict = field(default_factory=dict)
 
     @property
@@ -79,6 +81,10 @@ class LessonView:
     @property
     def end_dt(self) -> datetime:
         return datetime.combine(self.day, self.end)
+
+    def locked(self, now: datetime) -> bool:
+        """Менять поздно: пара уже началась в исходное время или на новом месте после переноса."""
+        return self.start_dt <= now or (self.moved_start is not None and self.moved_start <= now)
 
     @property
     def kind_label(self) -> str:
@@ -119,6 +125,8 @@ def day_note(d: date) -> str | None:
     """Пояснение для дня без занятий: праздник, сессия или каникулы."""
     if d in HOLIDAYS:
         return f"Праздничный день: {HOLIDAYS[d]}. Занятий нет"
+    if d > SESSION_END:
+        return "Сессия закончилась, занятий нет"
     if d > SEMESTER_END:
         return "Занятия семестра закончились, идет сессия"
     if d < SEMESTER_START:
@@ -173,6 +181,7 @@ def lessons_for_date(db: Session, group_code: str, d: date) -> list[LessonView]:
             v.note = c.note
             if c.change_type == "moved" and c.new_date:
                 v.status = "moved_away"
+                v.moved_start = lesson_start(c.new_date, c.new_pair_no)
                 v.moved_text = f"Пара перенесена {on_day(c.new_date)}, {pair_name(c.new_pair_no)}"
             elif c.change_type == "cancelled":
                 v.status = "cancelled"
@@ -248,12 +257,19 @@ def upcoming_changes(db: Session, group_code: str, days: int = 7) -> list[Lesson
     return out
 
 
-def slot_taken(db: Session, group_code: str, d: date, pair_no: int, ignore_change_id: int | None = None) -> bool:
-    """Занят ли у группы слот: в этот день и на эту пару уже стоит занятие, которое состоится.
+def slot_holder(db: Session, group_code: str, d: date, pair_no: int,
+                ignore_change_id: int | None = None) -> LessonView | None:
+    """Занятие, которое уже стоит у группы в этот день на эту пару и состоится, или None.
     ignore_change_id: перенос, который сейчас заменяется (повторный перенос на тот же слот не конфликт)."""
-    return any(v.happens and not v.is_exam and v.pair_no == pair_no
-               and not (ignore_change_id is not None and v.status == "moved_in" and v.change_id == ignore_change_id)
-               for v in lessons_for_date(db, group_code, d))
+    for v in lessons_for_date(db, group_code, d):
+        if (v.happens and not v.is_exam and v.pair_no == pair_no
+                and not (ignore_change_id is not None and v.status == "moved_in" and v.change_id == ignore_change_id)):
+            return v
+    return None
+
+
+def slot_taken(db: Session, group_code: str, d: date, pair_no: int, ignore_change_id: int | None = None) -> bool:
+    return slot_holder(db, group_code, d, pair_no, ignore_change_id) is not None
 
 
 def lesson_start(d: date, pair_no: int) -> datetime:

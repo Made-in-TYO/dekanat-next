@@ -1,5 +1,5 @@
 """Создание уведомлений."""
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
 from datetime import datetime, time, timedelta
@@ -35,11 +35,18 @@ def remind_deadlines(db: Session, student: Student, days: int = 3) -> int:
     due = db.scalars(select(Deadline).where(Deadline.student_id == student.id, Deadline.done.is_(False),
                                             Deadline.reminded.is_(False), Deadline.due_at >= now,
                                             Deadline.due_at < datetime.combine(now.date() + timedelta(days=days + 1), time.min))).all()
+    sent = 0
     for d in due:
+        # Две вкладки могут прийти одновременно и обе прочитать reminded=False. Отметку ставим условным
+        # обновлением: напоминание создает только тот запрос, который действительно сменил отметку.
+        res = db.execute(update(Deadline).where(Deadline.id == d.id, Deadline.reminded.is_(False))
+                         .values(reminded=True).execution_options(synchronize_session=False))
+        if res.rowcount != 1:
+            continue
         left = (d.due_at.date() - now.date()).days
         when = "Сегодня" if left <= 0 else ("Завтра" if left == 1 else f"Через {left} {plural(left, 'день', 'дня', 'дней')}")
         notify(db, student.user_id, "deadline", f"{when}: {d.title}", f"{d.source}, срок {fmt_dt(d.due_at)}", "/home")
-        d.reminded = True
+        sent += 1
     if due:
         db.commit()
-    return len(due)
+    return sent

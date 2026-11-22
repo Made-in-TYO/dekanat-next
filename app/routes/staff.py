@@ -94,8 +94,9 @@ def request_status(request: Request, rid: IdPath, new_status: str = Form(...), c
             status_code=400, db=db)
     r.status = new_status
     r.updated_at = utcnow()
-    if comment:
-        r.staff_comment = comment
+    # Комментарий относится к последнему решению. Прежний вопрос остается в истории заявки,
+    # но не должен повторяться в тексте одобрения
+    r.staff_comment = comment or None
     t = TYPES[r.type_code]
     if new_status == "ready":
         r.issued_at = utcnow()
@@ -142,7 +143,8 @@ def threads(request: Request, s: AuthSession = Depends(require_staff), db: Sessi
         unread = db.scalar(select(func.count(Message.id)).where(Message.student_id == st.id, Message.from_staff.is_(False),
                                                                Message.read_by_staff.is_(False))) or 0
         rows.append((st, last, unread))
-    rows.sort(key=lambda x: (x[2] == 0, -x[1].created_at.timestamp()))
+    # Сначала переписки, где ждут ответа (последнее сообщение от студента), внутри: непрочитанные и свежие
+    rows.sort(key=lambda x: (x[1].from_staff, x[2] == 0, -x[1].created_at.timestamp()))
     return render(request, "staff/threads.html", {"nav": "messages", "rows": rows, "unanswered": _unanswered(db)}, db=db)
 
 
@@ -206,7 +208,7 @@ def announcement_create(request: Request, title: str = Form(""), body: str = For
             status_code=400, db=db)
     db.add(Announcement(title=title, body=body, audience=audience, author_id=s.user_id))
     group = audience.removeprefix("group:") if audience != "all" else None
-    notify_group(db, group, "news", title, body[:200], "/notifications?kind=news")
+    notify_group(db, group, "news", title, body, "/notifications?kind=news")
     db.commit()
     return RedirectResponse("/staff/announcements?ok=announced", status_code=303)
 
@@ -259,14 +261,37 @@ def schedule_change(request: Request, template_id: IdForm, day: str = Form(...),
     existing = db.scalar(select(LessonChange).where(LessonChange.template_id == t.id, LessonChange.date == d))
     name = t.discipline.name
     when = _when(d, t.pair_no)
-    # Сравниваем со временем начала пары, а не только с датой: идущую или прошедшую сегодня пару менять поздно
-    if S.lesson_start(d, t.pair_no) <= now_local():
+    # Сравниваем со временем начала пары, а не только с датой: идущую или прошедшую сегодня пару менять поздно.
+    # У перенесенной пары важно и новое время: если она уже идет на новом месте, отменять ее поздно.
+    moved_start = (S.lesson_start(existing.new_date, existing.new_pair_no)
+                   if existing and existing.change_type == "moved" and existing.new_date else None)
+    now = now_local()
+    if S.lesson_start(d, t.pair_no) <= now or (moved_start is not None and moved_start <= now):
         ctx = _schedule_ctx(db, t.group_code, d, errors={"day": "Это занятие уже началось или прошло, менять его нельзя"},
                             error_template=t.id,
                             form={"change_type": change_type, "new_room": new_room.strip()[:32],
                                   "new_teacher": new_teacher.strip()[:128], "new_date": new_date,
                                   "new_pair_no": new_pair_no, "note": note.strip()[:255]})
         return render(request, "staff/schedule.html", ctx, status_code=400, db=db)
+
+    def form_error(field: str, text: str):
+        ctx = _schedule_ctx(db, t.group_code, d, errors={field: text}, error_template=t.id,
+                            form={"change_type": change_type, "new_room": new_room.strip()[:32],
+                                  "new_teacher": new_teacher.strip()[:128], "new_date": new_date,
+                                  "new_pair_no": new_pair_no, "note": note.strip()[:255]})
+        return render(request, "staff/schedule.html", ctx, status_code=400, db=db)
+
+    # Онлайн-пара по сетке: у нее нет аудитории, и в онлайн ее переводить незачем
+    if t.online and change_type in ("room", "online"):
+        return form_error("day", "Это онлайн-пара: аудиторию для нее не меняют, она и так проходит онлайн")
+
+    # Отмена переноса или отмены возвращает пару на исходное место. Если его уже заняла другая пара
+    # (например, туда перенесли другое занятие), у группы оказались бы две пары одновременно.
+    if existing and existing.change_type in ("moved", "cancelled") and change_type in ("revert", "room", "teacher", "online"):
+        holder = S.slot_holder(db, t.group_code, d, t.pair_no)
+        if holder is not None:
+            return form_error("day", f"В это время у группы уже стоит другая пара: {holder.discipline}. "
+                                     "Сначала перенесите или отмените ее")
 
     if change_type == "revert":
         # "Вернуть как было": удаляем изменение и сообщаем группе

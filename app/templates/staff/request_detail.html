@@ -16,7 +16,7 @@
       <dt>Студент</dt><dd>{{ r.student.user.full_name }}, {{ r.student.group_code }}, {{ r.student.faculty_short }}</dd>
       <dt>Направление</dt><dd>{{ r.student.program_code }} {{ r.student.program_name }}, {{ r.student.course }} курс</dd>
       {% if r.purpose %}<dt>{{ 'Для чего' if t.kind == 'certificate' else 'Причина' }}</dt><dd>{{ r.purpose }}</dd>{% endif %}
-      <dt>Формат</dt><dd>{{ FORMAT_LABELS[r.fmt] }}{% if r.fmt == 'paper' and r.copies > 1 %}, {{ r.copies }} экз.{% endif %}</dd>
+      <dt>Формат</dt><dd>{{ FORMAT_LABELS[r.fmt] if (t.kind == 'certificate' or r.fmt == 'paper') else ('Электронное заявление' if t.kind == 'application' else 'Электронный') }}{% if r.fmt == 'paper' and r.copies > 1 %}, {{ r.copies }} экз.{% endif %}</dd>
       {% if r.comment %}<dt>Комментарий студента</dt><dd>{{ r.comment }}</dd>{% endif %}
     </dl>
 

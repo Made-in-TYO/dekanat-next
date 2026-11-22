@@ -34,7 +34,7 @@
           {% set hd = focus.day|human_day %}
           <p class="board-day">{{ ((hd ~ ', ' ~ focus.day|fdate(with_weekday=True)) if hd == 'завтра' else focus.day|fdate(with_weekday=True))|capitalize }}</p>
         {% endif %}
-        {% if focus.changed %}<p class="board-change">{{ icon('triangle-alert') }}{% if focus.status == 'room' %}Аудитория изменилась, раньше была {{ focus.old_room }}{% elif focus.status == 'moved_in' %}{{ focus.moved_text }}{% elif focus.status == 'online' %}Пару перевели в онлайн{% elif focus.status == 'teacher' %}Ведет {{ focus.teacher }} вместо {{ focus.old_teacher }}{% endif %}</p>{% endif %}
+        {% if focus.changed %}<p class="board-change">{{ icon('triangle-alert') }}<span>{% if focus.status == 'room' %}Аудитория изменилась, раньше была {{ focus.old_room }}{% elif focus.status == 'moved_in' %}{{ focus.moved_text }}{% elif focus.status == 'online' %}Пару перевели в онлайн{% elif focus.status == 'teacher' %}Ведет {{ focus.teacher }} вместо {{ focus.old_teacher }}{% endif %}</span></p>{% endif %}
         {% if hints %}<ul class="board-hints">{% for h in hints %}<li>{{ icon('info') }}<span>{{ h }}</span></li>{% endfor %}</ul>{% endif %}
         {% if current and next %}
           <p class="board-then">Потом: {% if next.day != now.date() %}{{ next.day|human_day }}, {% endif %}{{ next.start|hm }}, {{ next.discipline }}{% if not next.online %}, ауд. {{ next.room }}{% endif %}</p>
@@ -48,7 +48,7 @@
     <section class="section">
       <div class="section-head">
         <h2>Сегодня</h2>
-        <a class="link" href="/schedule">Вся неделя</a>
+        <a class="link" href="/schedule?view=week">Вся неделя</a>
       </div>
       {% if lessons_today %}
         <ol class="timeline">{% for v in lessons_today %}{{ ui.lesson_row(v, now) }}{% endfor %}</ol>

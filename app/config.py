@@ -37,6 +37,8 @@ IP_WINDOW_MINUTES = 10
 # От начала семестра считается номер учебной недели и четность. После конца занятий идет сессия.
 SEMESTER_START = os.environ.get("SEMESTER_START", "2026-09-01")
 SEMESTER_END = os.environ.get("SEMESTER_END", "2026-12-26")
+# Последний день сессии: после него расписание пишет, что сессия закончилась
+SESSION_END = os.environ.get("SESSION_END", "2027-01-31")
 HOLIDAYS = {"2026-11-04": "День народного единства",
             **{f"2027-01-0{d}": "Новогодние каникулы" for d in range(1, 9)}}
 

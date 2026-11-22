@@ -59,7 +59,7 @@ def _ago(dt_utc: datetime | None) -> str:
     return timeutil.fmt_dt(dt)
 
 
-env.globals.update(demo_idle_minutes=config.DEMO_IDLE_RESET_MINUTES, week_label=timeutil.week_label, greeting=timeutil.greeting, icon=icon, TYPES=TYPES, FORMAT_LABELS=FORMAT_LABELS, status_label=status_label, status_info=status_info,
+env.globals.update(demo_idle_minutes=config.DEMO_IDLE_RESET_MINUTES, demo_daily_reset=config.DEMO_DAILY_RESET, week_label=timeutil.week_label, greeting=timeutil.greeting, icon=icon, TYPES=TYPES, FORMAT_LABELS=FORMAT_LABELS, status_label=status_label, status_info=status_info,
                    track_labels=track_labels, eta_for=eta_for, is_instant=is_instant,
                    asset_v=ASSET_VERSION, plural=timeutil.plural)
 env.filters.update(

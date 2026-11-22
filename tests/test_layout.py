@@ -153,6 +153,7 @@ def test_no_horizontal_scroll_or_console_errors_at_360px(live_server):
 # Обход выше проверяет прокрутку всей страницы, а у табло overflow: hidden, и обрезанный текст
 # прокрутки не дает. Поэтому табло проверяется отдельно: в моменты, когда на нем «Онлайн»,
 # «Спортзал» и длинная аудитория, которую ввел сотрудник, на ширине 360, 390 и 1440 px.
+LONG_TEACHER = "Константинопольский\u2011Рождественский А. К."
 BOARD_CASES = [
     (datetime(2026, 11, 24, 9, 0), "timur", None),          # вторник до 10:00: онлайн-лекция
     (datetime(2026, 11, 24, 12, 0), "timur", None),         # вторник днем: Спортзал
@@ -161,11 +162,13 @@ BOARD_CASES = [
     (datetime(2026, 11, 27, 10, 0), "kira", None),          # пятница
     (datetime(2026, 11, 23, 9, 0), "timur", "Конференц-зал"),
     (datetime(2026, 11, 23, 9, 0), "timur", LONG_WORD[:32]),
+    # Пятая проверка: длинная фамилия с неразрывным дефисом в строке о замене преподавателя
+    (datetime(2026, 11, 23, 9, 0), "kira", ("teacher", LONG_TEACHER)),
 ]
 BOARD_CHECK = """() => {
   const b = document.querySelector('.board'); if (!b) return {bad: ['нет табло'], text: ''};
   const br = b.getBoundingClientRect(); const bad = [];
-  for (const el of b.querySelectorAll('.board-main, .board-main *, .board-title, .board-meta, .board-kicker')) {
+  for (const el of b.querySelectorAll('.board-main, .board-main *, .board-title, .board-meta, .board-kicker, .board-change, .board-change *, .board-hints *, .board-then')) {
     const r = el.getBoundingClientRect();
     if (r.width && r.right > br.right + 0.5) bad.push(el.className + ': выходит за табло на ' + Math.round(r.right - br.right) + ' px');
     if (el.clientWidth && el.scrollWidth > el.clientWidth + 1) bad.push(el.className + ': обрезано ' + el.scrollWidth + ' > ' + el.clientWidth);
@@ -212,7 +215,12 @@ def test_board_fits_on_phone_with_text_rooms(board_server):
                 with SessionLocal() as db:
                     cur, nxt = S.current_and_next(db, group)
                     focus = cur or nxt
-                    db.add(LessonChange(template_id=focus.template_id, date=focus.day, change_type="room", new_room=long_room))
+                    if isinstance(long_room, tuple):
+                        db.add(LessonChange(template_id=focus.template_id, date=focus.day, change_type="teacher",
+                                            new_teacher=long_room[1]))
+                    else:
+                        db.add(LessonChange(template_id=focus.template_id, date=focus.day, change_type="room",
+                                            new_room=long_room))
                     db.commit()
             for width in (360, 390, 1440):
                 ctx = browser.new_context(viewport={"width": width, "height": 800}, timezone_id="Europe/Moscow")
@@ -227,11 +235,13 @@ def test_board_fits_on_phone_with_text_rooms(board_server):
                 seen_rooms.add(res["text"])
                 if res["bad"]:
                     problems[f"{user} {moment:%a %H:%M} {width}px {long_room or ''}"] = res["bad"]
+                if isinstance(long_room, tuple):
+                    seen_rooms.add(page.inner_text(".board-change"))
                 ctx.close()
     finally:
         browser.close()
         pw.stop()
     assert not problems, problems
     # тест действительно видел трудные случаи, а не только номера аудиторий
-    for room in ("Онлайн", "Спортзал", "Конференц-зал", LONG_WORD[:32]):
+    for room in ("Онлайн", "Спортзал", "Конференц-зал", LONG_WORD[:32], LONG_TEACHER.split()[0]):
         assert any(room in r for r in seen_rooms), (room, seen_rooms)

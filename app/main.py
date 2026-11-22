@@ -30,8 +30,41 @@ async def lifespan(_app: FastAPI):
 
 
 # Документация API отключена: в продакшене она не нужна и раскрывала бы внутреннее устройство
+def gzip_refused(accept_encoding: str) -> bool:
+    """Клиент явно отказался от gzip: "gzip;q=0" (RFC 9110, раздел 12.5.3)."""
+    for part in accept_encoding.split(","):
+        name, _, params = part.partition(";")
+        if name.strip().lower() != "gzip":
+            continue
+        for p in params.split(";"):
+            key, _, val = p.partition("=")
+            if key.strip().lower() == "q":
+                try:
+                    return float(val.strip()) == 0
+                except ValueError:
+                    return False
+        return False
+    return False
+
+
+class GZipUnlessRefused:
+    """Сжатие ответов, если браузер его поддерживает и не отказался от него явно."""
+
+    def __init__(self, app, minimum_size: int = 1000):
+        self.app = app
+        self.gzip = GZipMiddleware(app, minimum_size=minimum_size)
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] == "http":
+            accept = dict(scope.get("headers") or []).get(b"accept-encoding", b"").decode("latin-1")
+            if gzip_refused(accept):
+                await self.app(scope, receive, send)
+                return
+        await self.gzip(scope, receive, send)
+
+
 app = FastAPI(title="Деканат Next", docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan)
-app.add_middleware(GZipMiddleware, minimum_size=1000)  # страницы и CSS сжимаются, если браузер это поддерживает
+app.add_middleware(GZipUnlessRefused, minimum_size=1000)  # страницы и CSS сжимаются, если браузер это поддерживает
 
 
 class CachedStatic(StaticFiles):
@@ -58,6 +91,34 @@ def _allowed_hosts(request: Request) -> set[str]:
     return hosts
 
 
+def _port_of(host: str) -> int | None:
+    try:
+        return urlparse("//" + host).port
+    except ValueError:
+        return None
+
+
+def origin_allowed(request: Request, origin: str) -> bool:
+    """Origin совпадает с нашим сайтом: схема, имя хоста и порт (стандартный для схемы или тот,
+    по которому открыт сайт). Раньше сравнивалось только имя хоста."""
+    try:
+        u = urlparse(origin)
+        port = u.port
+    except ValueError:
+        return False
+    # Сайт открыт по HTTPS: страница с того же имени по HTTP чужая (ее мог подменить кто-то в сети).
+    # Сайт без HTTPS (локальный запуск, прокси без X-Forwarded-Proto): подходят обе схемы.
+    schemes = {"https"} if is_https(request) else {"http", "https"}
+    if u.scheme not in schemes or u.hostname not in _allowed_hosts(request):
+        return False
+    default = 443 if u.scheme == "https" else 80
+    ports = {default, _port_of(request.headers.get("host") or "")}
+    peer = request.client.host if request.client else ""
+    if _is_internal(peer) and request.headers.get("x-forwarded-host"):
+        ports.add(_port_of(request.headers["x-forwarded-host"].split(",")[0].strip()))
+    return (port or default) in ports
+
+
 def apply_security_headers(request: Request, response) -> None:
     h = response.headers
     h.setdefault("Content-Security-Policy", CSP)
@@ -82,9 +143,11 @@ async def security_middleware(request: Request, call_next):
     # Запросы, меняющие данные, принимаем только со своего сайта (защита от CSRF вдобавок к токену в формах)
     if request.method not in ("GET", "HEAD", "OPTIONS"):
         origin = request.headers.get("origin")
-        if origin:  # "null" тоже чужой: так браузер помечает запросы из песочниц и после перенаправлений
-            if urlparse(origin).hostname not in _allowed_hosts(request):
-                return PlainTextResponse("Запрос с чужого сайта отклонен", status_code=403)
+        if origin and not origin_allowed(request, origin):
+            # "null" тоже чужой: так браузер помечает запросы из песочниц и после перенаправлений
+            response = PlainTextResponse("Запрос с чужого сайта отклонен", status_code=403)
+            apply_security_headers(request, response)
+            return response
     response = await call_next(request)
     apply_security_headers(request, response)
     return response
