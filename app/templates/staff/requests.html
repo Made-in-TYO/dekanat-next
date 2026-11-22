@@ -14,7 +14,7 @@
   {% for r in items %}
     <tr><td><a href="/staff/requests/{{ r.id }}"><b>{{ TYPES[r.type_code].title }}</b><small>{{ r.number }}, {{ 'электронная' if r.fmt == 'electronic' else 'бумажная' }}</small></a></td>
       <td>{{ r.student.user.full_name }}<small>{{ r.student.group_code }}</small></td>
-      <td>{{ ui.status_chip(r.status) }}</td><td>{{ r.updated_at|ago }}</td></tr>
+      <td>{{ ui.status_chip(r) }}</td><td>{{ r.updated_at|ago }}</td></tr>
   {% endfor %}
   </tbody>
 </table>

@@ -58,6 +58,40 @@ def test_lockout_after_five_failed_attempts():
     assert "заблокирован" in r.text
 
 
+def test_lockout_does_not_block_other_visitors():
+    """Блокируется пара логин + IP: посторонний не может закрыть общий демо-аккаунт для всех."""
+    attacker = {"X-Forwarded-For": "203.0.113.5"}
+    c = make_client()
+    for _ in range(6):
+        c.post("/login", data={"login": "timur", "password": "wrong"}, headers=attacker)
+    r = c.post("/login", data={"login": "timur", "password": "Timur-2026"}, headers=attacker, follow_redirects=False)
+    assert r.status_code == 401
+    jury = make_client().post("/login", data={"login": "timur", "password": "Timur-2026"},
+                              headers={"X-Forwarded-For": "198.51.100.7"}, follow_redirects=False)
+    assert jury.status_code == 303
+
+
+def test_forged_forwarded_header_does_not_bypass_lockout():
+    """Подделанные левые части X-Forwarded-For не помогают: учитывается адрес, который дописал прокси."""
+    c = make_client()
+    for i in range(6):
+        c.post("/login", data={"login": "kira", "password": "wrong"},
+               headers={"X-Forwarded-For": f"10.0.0.{i}, 203.0.113.9"})
+    r = c.post("/login", data={"login": "kira", "password": "Kira-2026"},
+               headers={"X-Forwarded-For": "10.9.9.9, 203.0.113.9"}, follow_redirects=False)
+    assert r.status_code == 401
+
+
+def test_lockout_message_does_not_reveal_existing_logins():
+    c = make_client()
+    for login_ in ("kira", "no-such-user"):
+        for _ in range(5):
+            c.post("/login", data={"login": login_, "password": "wrong"})
+    a = c.post("/login", data={"login": "kira", "password": "wrong"}).text
+    b = c.post("/login", data={"login": "no-such-user", "password": "wrong"}).text
+    assert "заблокирован" in a and "заблокирован" in b
+
+
 def test_pages_require_login():
     c = make_client()
     for path in ["/home", "/schedule", "/grades", "/requests", "/notifications", "/messages", "/profile", "/staff"]:
@@ -154,18 +188,38 @@ def test_security_headers(kira):
     assert r.headers["cache-control"] == "no-store"
 
 
-def test_password_change(kira):
-    other = login("kira", "Kira-2026")
+def test_demo_accounts_cannot_change_password(kira):
     token = csrf(kira)
-    bad = kira.post("/profile/password", data={"current": "nope", "new": "NewPass-2026", "repeat": "NewPass-2026",
-                                               "csrf_token": token})
+    r = kira.post("/profile/password", data={"current": "Kira-2026", "new": "NewPass-2026", "repeat": "NewPass-2026",
+                                             "csrf_token": token})
+    assert r.status_code == 400 and "отключена" in r.text
+    login("kira", "Kira-2026")  # старый пароль по-прежнему работает
+
+
+def test_password_change_for_regular_account():
+    from app.security import hash_password
+    with SessionLocal() as db:
+        demo = db.scalar(select(User).where(User.login == "kira"))
+        db.add(User(login="real", password_hash=hash_password("Real-2026"), role="student",
+                    full_name="Обычный Студент Тестович", is_demo=False))
+        db.flush()
+        db.add(Student(user_id=db.scalar(select(User.id).where(User.login == "real")), faculty="Ф", faculty_short="Ф",
+                       level="Бакалавриат", program_code="00.00.00", program_name="П", profile_name="П", course=1,
+                       group_code="X0000", study_form="Очная", funding="Бюджет", record_book="1", admission_year=2026,
+                       curator="К", email="real@student.example"))
+        db.commit()
+    c = login("real", "Real-2026")
+    other = login("real", "Real-2026")
+    token = csrf(c)
+    bad = c.post("/profile/password", data={"current": "nope", "new": "NewPass-2026", "repeat": "NewPass-2026",
+                                            "csrf_token": token})
     assert bad.status_code == 400
-    ok = kira.post("/profile/password", data={"current": "Kira-2026", "new": "NewPass-2026", "repeat": "NewPass-2026",
-                                              "csrf_token": token}, follow_redirects=False)
+    ok = c.post("/profile/password", data={"current": "Real-2026", "new": "NewPass-2026", "repeat": "NewPass-2026",
+                                           "csrf_token": token}, follow_redirects=False)
     assert ok.status_code == 303
     assert other.get("/home", follow_redirects=False).status_code == 303  # второй сеанс завершен
-    assert kira.get("/home").status_code == 200                           # текущий сеанс работает
-    login("kira", "NewPass-2026")
+    assert c.get("/home").status_code == 200                              # текущий сеанс работает
+    login("real", "NewPass-2026")
 
 
 # ---------- В коде нет секретов ----------

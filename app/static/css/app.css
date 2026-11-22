@@ -221,7 +221,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .flag-bad { background: var(--bad-soft); color: var(--bad); }
 .flag-now { background: var(--brand); color: var(--brand-ink); }
 .lesson.is-now::after { background: var(--brand); border-color: var(--brand); box-shadow: 0 0 0 4px var(--brand-soft); }
-.lesson.is-past .lesson-body, .lesson.is-past .lesson-time { opacity: .55; }
+.lesson.is-past .lesson-title, .lesson.is-past .t-start { color: var(--muted); font-weight: 500; }
 .lesson.is-cancelled .lesson-title, .lesson.is-moved_away .lesson-title { text-decoration: line-through; color: var(--muted); }
 .lesson.is-cancelled::after { border-color: var(--bad); }
 .lesson.is-room::after, .lesson.is-moved_in::after, .lesson.is-teacher::after, .lesson.is-online::after, .lesson.is-moved_away::after { border-color: var(--warn); background: var(--warn-soft); }
@@ -643,3 +643,51 @@ select.input { appearance: auto; }
 .dl dd { overflow-wrap: anywhere; }
 :root[data-theme="dark"] .board { box-shadow: inset 0 0 0 1px var(--line); }
 @media (prefers-color-scheme: dark) { :root[data-theme="auto"] .board { box-shadow: inset 0 0 0 1px var(--line); } }
+
+
+/* ---------- Доработки после проверки ---------- */
+/* Контраст счетчиков: белый текст на насыщенном красном в обеих темах (5,3:1) */
+.dot, .count { background: #C0313B; color: #FFFFFF; }
+.flag-exam { background: var(--board); color: var(--amber); }
+.lesson.is-exam::after { border-color: var(--board); background: var(--amber); }
+.chip-approved { background: var(--ok-soft); color: var(--ok); }
+
+/* Подсказка для жюри */
+.tour { margin: 0 0 20px; border-radius: var(--radius); background: var(--brand-soft); }
+:root[data-tour="hidden"] .tour { display: none; }
+.tour-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 12px 14px; cursor: pointer; list-style: none; font-weight: 600; }
+.tour-head::-webkit-details-marker { display: none; }
+.tour-title { display: flex; align-items: center; gap: 8px; }
+.tour-title .ic { color: var(--brand); }
+.tour-chev { color: var(--muted); transition: transform .15s; }
+.tour[open] .tour-chev { transform: rotate(90deg); }
+.tour-body { display: grid; gap: 10px; padding: 0 14px 14px; }
+.link-btn { padding: 0; border: 0; background: none; color: var(--brand); text-decoration: underline; cursor: pointer; font-size: inherit; }
+.tour-steps { margin: 0; padding-left: 22px; display: grid; gap: 6px; font-size: 15px; }
+.tour-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+
+/* Подтверждение отмены заявки в два шага */
+.confirm { margin-top: 8px; }
+.confirm > summary { list-style: none; display: inline-flex; }
+.confirm > summary::-webkit-details-marker { display: none; }
+.confirm-box { display: grid; gap: 10px; margin-top: 8px; padding: 12px; border-radius: 12px; background: var(--bad-soft); }
+.btn-danger-solid { background: #C0313B; color: #FFFFFF; }
+.btn-danger-solid:hover { background: #A3262F; }
+
+/* Каталог: недоступная справка */
+.cat-off { display: grid; grid-template-columns: 40px 1fr; align-items: center; gap: 12px; padding: 12px 14px; border-radius: var(--radius); background: var(--surface); color: var(--muted); opacity: .85; }
+.cat-off .cat-ic { background: var(--surface-2); color: var(--muted); }
+.format-note { display: flex; gap: 10px; align-items: flex-start; padding: 12px 14px; border-radius: 12px; background: var(--surface); }
+.format-note .ic { color: var(--brand); margin-top: 2px; }
+
+/* Дедлайны как список дел */
+.deadlines li { grid-template-columns: 52px 1fr 40px; }
+.dl-toggle { margin: 0; }
+.check { display: grid; place-items: center; width: 36px; height: 36px; border-radius: 11px; border: 2px solid var(--line); background: var(--surface); color: transparent; cursor: pointer; }
+.check:hover { border-color: var(--ok); color: var(--ok); }
+.check.is-on { background: var(--ok); border-color: var(--ok); color: #FFFFFF; }
+.check .ic { width: 18px; height: 18px; }
+.deadlines li.is-done .dl-what b { text-decoration: line-through; color: var(--muted); }
+.deadlines li.is-done .dl-when { background: var(--ok-soft); color: var(--ok); }
+.deadlines li.is-done .dl-when small { color: var(--ok); }
+.demo-switch { margin: 0; }

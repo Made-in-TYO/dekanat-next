@@ -7,11 +7,11 @@
   <p class="muted">{{ st.program_code }} {{ st.program_name }}, {{ st.course }} курс, осенний семестр 2026</p>
 </header>
 
-<div class="segmented segmented-wide" role="tablist" aria-label="Разделы учебы">
-  <a role="tab" href="/grades?tab=current" class="{% if tab == 'current' %}is-active{% endif %}" aria-selected="{{ 'true' if tab == 'current' else 'false' }}">Семестр</a>
-  <a role="tab" href="/grades?tab=session" class="{% if tab == 'session' %}is-active{% endif %}" aria-selected="{{ 'true' if tab == 'session' else 'false' }}">Сессия</a>
-  <a role="tab" href="/grades?tab=history" class="{% if tab == 'history' %}is-active{% endif %}" aria-selected="{{ 'true' if tab == 'history' else 'false' }}">Зачетка</a>
-</div>
+<nav class="segmented segmented-wide" aria-label="Разделы учебы">
+  {% for key, label in [('current', 'Семестр'), ('session', 'Сессия'), ('history', 'Зачетка')] %}
+  <a href="/grades?tab={{ key }}" class="{% if tab == key %}is-active{% endif %}"{% if tab == key %} aria-current="page"{% endif %}>{{ label }}</a>
+  {% endfor %}
+</nav>
 
 {% if tab == 'current' %}
   <section class="summary-strip" aria-label="Сводка">
@@ -33,7 +33,7 @@
           </span>
           <span class="disc-points"><b>{{ p.points|num }}</b><small>из {{ (p.assessed_max + p.remaining_max)|num }}</small></span>
           {{ ui.bar(p.bar_points) }}
-          <span class="disc-state">{{ p.state_text }}{% if p.state not in ('done', 'fail') %}{% if p.to_pass > 0 %}. {{ 'До зачета' if p.control == 'credit' else 'До минимума в 60' }} не хватает {{ p.to_pass|num }} {{ plural(p.to_pass|int, 'балла', 'баллов', 'баллов') }}{% elif p.to_excellent > 0 and p.possible_max >= G.EXCELLENT %}. До «отлично» не хватает {{ p.to_excellent|num }} {{ plural(p.to_excellent|int, 'балла', 'баллов', 'баллов') }}{% endif %}{% endif %}</span>
+          <span class="disc-state">{{ p.state_text }}{% if p.state not in ('done', 'fail') %}{% if p.to_pass > 0 %}. {{ 'До зачета' if p.control == 'credit' else 'До минимума в 60 баллов' }} осталось набрать {{ p.to_pass|num }}{% elif p.to_excellent > 0 and p.possible_max >= G.EXCELLENT and p.control != 'credit' %}. До «отлично» осталось набрать {{ p.to_excellent|num }}{% endif %}{% endif %}</span>
         </summary>
         <div class="disc-detail">
           <table class="items">
@@ -53,7 +53,7 @@
           <div class="calc" data-calc data-points="{{ p.points }}" data-control="{{ p.control }}">
             <label for="calc{{ p.enrollment_id }}">{{ icon('calculator') }}Что если: сколько наберу из оставшихся {{ p.remaining_max|num }}</label>
             <input id="calc{{ p.enrollment_id }}" type="range" min="0" max="{{ p.remaining_max }}" step="1" value="{{ (p.remaining_max * p.pace)|round|int }}">
-            <output for="calc{{ p.enrollment_id }}" data-calc-out>При текущем темпе выйдет около {{ p.forecast_points }} баллов</output>
+            <output for="calc{{ p.enrollment_id }}" data-calc-out>При текущем темпе выйдет около {{ p.forecast_points }} {{ plural(p.forecast_points|int, 'балла', 'баллов', 'баллов') }}</output>
           </div>
           {% endif %}
         </div>
@@ -86,9 +86,10 @@
 
 {% else %}
   <section class="summary-strip" aria-label="Итоги">
-    <p><b>{{ avg if avg else '-' }}</b><span>средний балл по экзаменам и дифзачетам</span></p>
-    <p><b>{{ semesters.values()|map('length')|sum }}</b><span>закрытых дисциплин</span></p>
-    <p class="s-ok"><b>0</b><span>академических задолженностей</span></p>
+    <p><b>{{ avg|num if avg else '-' }}</b><span>средний балл по экзаменам и дифзачетам</span></p>
+    {% set closed = semesters.values()|map('length')|sum %}
+    <p><b>{{ closed }}</b><span>{{ plural(closed, 'закрытая дисциплина', 'закрытые дисциплины', 'закрытых дисциплин') }}</span></p>
+    <p class="{{ 's-risk' if debts else 's-ok' }}"><b>{{ debts }}</b><span>{{ plural(debts, 'академическая задолженность', 'академические задолженности', 'академических задолженностей') }}</span></p>
   </section>
   {% for sem, rows in semesters.items() %}
   <section class="section">

@@ -14,19 +14,22 @@
   </header>
   <h1 class="doc-title">{{ t.title|upper }}</h1>
   <p class="doc-num">№ {{ r.number }} от {{ (r.issued_at|local).date()|fdate(with_year=True) }}</p>
+  {% set level_gen = {'Магистратура': 'магистратуры', 'Бакалавриат': 'бакалавриата'} %}
+  {% set form_gen = {'Очная': 'очной', 'Заочная': 'заочной', 'Очно-заочная': 'очно-заочной'} %}
+  {% set fund_gen = {'Бюджет': 'бюджетной', 'Контракт': 'договорной'} %}
   {% if r.type_code == 'study' %}
-  <p>Дана {{ st.user.full_name }} в том, что {{ 'она' if st.user.full_name.split()[0].endswith('а') else 'он' }}
-     действительно является студентом {{ st.course }} курса, {{ st.level|lower }}, {{ st.study_form|lower }} форма обучения,
-     {{ st.funding|lower }}, направление подготовки {{ st.program_code }} «{{ st.program_name }}»,
+  <p>Справка подтверждает, что {{ st.user.full_name }} обучается на {{ st.course }} курсе {{ level_gen.get(st.level, st.level|lower) }}
+     по {{ form_gen.get(st.study_form, st.study_form|lower) }} форме обучения на {{ fund_gen.get(st.funding, st.funding|lower) }} основе.</p>
+  <p>Направление подготовки {{ st.program_code }} «{{ st.program_name }}», образовательная программа «{{ st.profile_name }}»,
      {{ st.faculty|lower }}, группа {{ st.group_code }}.</p>
-  <p>Срок обучения: {{ st.admission_year }}-{{ st.admission_year + (2 if st.level == 'Магистратура' else 4) }}.</p>
+  <p>Плановый период обучения: с {{ st.admission_year }} по {{ st.admission_year + (2 if st.level == 'Магистратура' else 4) }} год.</p>
   {% elif r.type_code == 'stipend' %}
-  <p>Дана {{ st.user.full_name }}, группа {{ st.group_code }}, о том, что за последние 6 месяцев начислена
-     государственная академическая стипендия. Сумма в этом демо не указывается.</p>
+  <p>Справка подтверждает, что {{ st.user.full_name }}, группа {{ st.group_code }}, получает государственную академическую стипендию.
+     Суммы начислений за последние 6 месяцев в демо-версии не указываются.</p>
   {% else %}
-  <p>Дана {{ st.user.full_name }}, группа {{ st.group_code }}.</p>
+  <p>Справка выдана: {{ st.user.full_name }}, группа {{ st.group_code }}.</p>
   {% endif %}
-  {% if r.purpose %}<p>Справка выдана для предъявления: {{ r.purpose|lower }}.</p>{% endif %}
+  {% if r.purpose %}<p>Цель получения: {{ r.purpose }}.</p>{% endif %}
   <footer class="doc-foot">
     <div class="doc-sign"><small>Подписано электронной подписью</small><b>Мельникова О. С.</b><small>специалист по учебной работе</small></div>
     <figure class="doc-qr">{{ qr }}<figcaption>Проверить подлинность: наведите камеру на код</figcaption></figure>

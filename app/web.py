@@ -7,14 +7,14 @@ from fastapi.templating import Jinja2Templates
 from markupsafe import Markup
 
 from .services import timeutil
-from .services.catalog import FORMAT_LABELS, STATUS, TYPES, status_label
+from .services.catalog import FORMAT_LABELS, TYPES, status_info, status_label, track_labels
 from .services.notify import unread_count
 
 templates = Jinja2Templates(directory=os.path.join(os.path.dirname(__file__), "templates"))
 env = templates.env
 env.autoescape = True
 
-ASSET_VERSION = "8"
+ASSET_VERSION = "9"
 
 
 def icon(name: str, cls: str = "ic") -> Markup:
@@ -43,7 +43,8 @@ def _ago(dt_utc: datetime | None) -> str:
     return timeutil.fmt_dt(dt)
 
 
-env.globals.update(icon=icon, TYPES=TYPES, STATUS=STATUS, FORMAT_LABELS=FORMAT_LABELS, status_label=status_label,
+env.globals.update(week_label=timeutil.week_label, greeting=timeutil.greeting, icon=icon, TYPES=TYPES, FORMAT_LABELS=FORMAT_LABELS, status_label=status_label, status_info=status_info,
+                   track_labels=track_labels,
                    asset_v=ASSET_VERSION, plural=timeutil.plural)
 env.filters.update(
     local=_local,
@@ -53,7 +54,7 @@ env.filters.update(
     fdt=lambda dt: timeutil.fmt_dt(dt) if dt else "",
     until=timeutil.until_text,
     hm=lambda t: t.strftime("%H:%M"),
-    num=lambda x: (f"{x:.1f}".rstrip("0").rstrip(".") if isinstance(x, float) else str(x)),
+    num=lambda x: (f"{x:.2f}".rstrip("0").rstrip(".").replace(".", ",") if isinstance(x, float) else str(x)),
 )
 
 
@@ -80,6 +81,8 @@ FLASH = {
     "status": "Статус заявки обновлен, студент получил уведомление",
     "announced": "Объявление опубликовано и разослано студентам",
     "change": "Изменение в расписании сохранено, группа получила уведомление",
+    "reverted": "Занятие возвращено к обычному расписанию, группа получила уведомление",
+    "done": "Отметка сохранена",
     "readall": "Все уведомления прочитаны",
 }
 

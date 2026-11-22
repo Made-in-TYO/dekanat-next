@@ -1,12 +1,17 @@
-"""Расписание: постоянная сетка группы + изменения на конкретные даты."""
+"""Расписание: постоянная сетка группы + изменения на конкретные даты + сессия.
+
+Учебный календарь концепта: занятия идут с начала семестра до SEMESTER_END, кроме праздников.
+После окончания занятий в расписании и на табло показываются консультации и экзамены сессии.
+"""
 from dataclasses import dataclass, field
 from datetime import date, datetime, time, timedelta
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload
 
-from ..models import LessonChange, LessonTemplate
-from .timeutil import fmt_date, from_day, now_local, on_day, utcnow, week_parity
+from .. import config
+from ..models import ExamEvent, LessonChange, LessonTemplate
+from .timeutil import from_day, now_local, on_day, utcnow, week_parity
 
 # Время пар (вымышленная сетка в стиле петербургских вузов, первая пара в 8:20)
 PAIRS = {
@@ -20,7 +25,22 @@ PAIRS = {
     8: (time(20, 20), time(21, 50)),
 }
 
-KIND_LABELS = {"lecture": "Лекция", "practice": "Практика", "lab": "Лабораторная"}
+KIND_LABELS = {"lecture": "Лекция", "practice": "Практика", "lab": "Лабораторная",
+               "exam": "Экзамен", "consultation": "Консультация", "credit": "Зачет"}
+EXAM_DURATION = {"exam": timedelta(hours=3), "consultation": timedelta(minutes=90), "credit": timedelta(hours=2)}
+
+SEMESTER_START = date.fromisoformat(config.SEMESTER_START)
+SEMESTER_END = date.fromisoformat(config.SEMESTER_END)
+HOLIDAYS = {date.fromisoformat(k): v for k, v in config.HOLIDAYS.items()}
+
+
+def pair_name(n: int) -> str:
+    return f"{n}-я пара"
+
+
+def short_name(fio: str) -> str:
+    parts = fio.split()
+    return parts[0] + " " + " ".join(p[0] + "." for p in parts[1:3]) if len(parts) > 1 else fio
 
 
 @dataclass
@@ -33,22 +53,24 @@ class LessonView:
     building: str
     teacher: str
     online: bool
-    status: str = "normal"  # normal | moved_away | moved_in | cancelled | room | teacher | online
+    status: str = "normal"  # normal | moved_away | moved_in | cancelled | room | teacher | online | exam
     note: str | None = None
     old_room: str | None = None
     old_teacher: str | None = None
     moved_text: str | None = None
     template_id: int | None = None
     change_id: int | None = None
+    custom_start: time | None = None   # для экзаменов: время не по сетке пар
+    custom_end: time | None = None
     extra: dict = field(default_factory=dict)
 
     @property
     def start(self) -> time:
-        return PAIRS[self.pair_no][0]
+        return self.custom_start or PAIRS[self.pair_no][0]
 
     @property
     def end(self) -> time:
-        return PAIRS[self.pair_no][1]
+        return self.custom_end or PAIRS[self.pair_no][1]
 
     @property
     def start_dt(self) -> datetime:
@@ -69,7 +91,39 @@ class LessonView:
 
     @property
     def changed(self) -> bool:
-        return self.status != "normal"
+        return self.status not in ("normal", "exam")
+
+    @property
+    def is_exam(self) -> bool:
+        return self.status == "exam"
+
+    @property
+    def change_phrase(self) -> str:
+        """Короткая фраза об изменении, согласованная со словом "пара"."""
+        return {
+            "cancelled": "пара отменена",
+            "moved_away": (self.moved_text or "пара перенесена").lower(),
+            "moved_in": (self.moved_text or "пара перенесена").lower(),
+            "room": f"пара в ауд. {self.room} вместо {self.old_room}",
+            "teacher": f"пару ведет {self.teacher}",
+            "online": "пара пройдет онлайн",
+        }.get(self.status, "")
+
+
+def is_class_day(d: date) -> bool:
+    """Идут ли в этот день обычные занятия по сетке."""
+    return SEMESTER_START <= d <= SEMESTER_END and d not in HOLIDAYS and d.weekday() != 6
+
+
+def day_note(d: date) -> str | None:
+    """Пояснение для дня без занятий: праздник, сессия или каникулы."""
+    if d in HOLIDAYS:
+        return f"Праздничный день: {HOLIDAYS[d]}. Занятий нет"
+    if d > SEMESTER_END:
+        return "Занятия семестра закончились, идет сессия"
+    if d < SEMESTER_START:
+        return "Семестр еще не начался"
+    return None
 
 
 def _view(t: LessonTemplate, d: date) -> LessonView:
@@ -77,13 +131,33 @@ def _view(t: LessonTemplate, d: date) -> LessonView:
                       building=t.building, teacher=t.teacher, online=t.online, template_id=t.id)
 
 
-def lessons_for_date(db: Session, group_code: str, d: date) -> list[LessonView]:
-    parity = week_parity(d)
-    templates = db.scalars(
+def templates_for(db: Session, group_code: str, d: date) -> list[LessonTemplate]:
+    """Занятия сетки, которые стоят в этот день (с учетом дня недели и четности недели)."""
+    if not is_class_day(d):
+        return []
+    return list(db.scalars(
         select(LessonTemplate).options(joinedload(LessonTemplate.discipline))
         .where(LessonTemplate.group_code == group_code, LessonTemplate.weekday == d.weekday(),
-               LessonTemplate.parity.in_(["any", parity]))
-    ).all()
+               LessonTemplate.parity.in_(["any", week_parity(d)]))
+    ))
+
+
+def _exams_for(db: Session, group_code: str, d: date) -> list[LessonView]:
+    start = datetime.combine(d, time.min)
+    events = db.scalars(select(ExamEvent).options(joinedload(ExamEvent.discipline))
+                        .where(ExamEvent.group_code == group_code, ExamEvent.starts_at >= start,
+                               ExamEvent.starts_at < start + timedelta(days=1))).all()
+    out = []
+    for e in events:
+        end = (e.starts_at + EXAM_DURATION.get(e.kind, timedelta(hours=2))).time()
+        out.append(LessonView(day=d, pair_no=0, discipline=e.discipline.name, kind=e.kind, room=e.room,
+                              building=e.building, teacher=short_name(e.discipline.teacher), online=False,
+                              status="exam", custom_start=e.starts_at.time(), custom_end=end))
+    return out
+
+
+def lessons_for_date(db: Session, group_code: str, d: date) -> list[LessonView]:
+    templates = templates_for(db, group_code, d)
     ids = [t.id for t in templates]
     changes = {}
     if ids:
@@ -99,7 +173,7 @@ def lessons_for_date(db: Session, group_code: str, d: date) -> list[LessonView]:
             v.note = c.note
             if c.change_type == "moved" and c.new_date:
                 v.status = "moved_away"
-                v.moved_text = f"Перенесена {on_day(c.new_date)}, {c.new_pair_no} пара"
+                v.moved_text = f"Пара перенесена {on_day(c.new_date)}, {pair_name(c.new_pair_no)}"
             elif c.change_type == "cancelled":
                 v.status = "cancelled"
             elif c.change_type == "room" and c.new_room:
@@ -119,7 +193,8 @@ def lessons_for_date(db: Session, group_code: str, d: date) -> list[LessonView]:
 
     # Занятия, перенесенные НА этот день с других дат
     moved_in = db.scalars(
-        select(LessonChange).join(LessonTemplate).options(joinedload(LessonChange.template).joinedload(LessonTemplate.discipline))
+        select(LessonChange).join(LessonTemplate)
+        .options(joinedload(LessonChange.template).joinedload(LessonTemplate.discipline))
         .where(LessonTemplate.group_code == group_code, LessonChange.change_type == "moved", LessonChange.new_date == d)
     ).all()
     for c in moved_in:
@@ -127,13 +202,16 @@ def lessons_for_date(db: Session, group_code: str, d: date) -> list[LessonView]:
         v.pair_no = c.new_pair_no or v.pair_no
         if c.new_room:
             v.room = c.new_room
+            if c.new_room.lower() == "онлайн":
+                v.online = True
         v.status = "moved_in"
         v.change_id = c.id
         v.note = c.note
-        v.moved_text = f"Перенос {from_day(c.date)}, {c.template.pair_no} пара"
+        v.moved_text = f"Пара перенесена сюда {from_day(c.date)}, {pair_name(c.template.pair_no)}"
         result.append(v)
 
-    result.sort(key=lambda v: (v.pair_no, 0 if v.happens else 1))
+    result.extend(_exams_for(db, group_code, d))
+    result.sort(key=lambda v: (v.start, 0 if v.happens else 1))
     return result
 
 
@@ -141,7 +219,7 @@ def week_lessons(db: Session, group_code: str, monday: date) -> list[tuple[date,
     return [(monday + timedelta(days=i), lessons_for_date(db, group_code, monday + timedelta(days=i))) for i in range(6)]
 
 
-def current_and_next(db: Session, group_code: str, horizon_days: int = 14):
+def current_and_next(db: Session, group_code: str, horizon_days: int = 21):
     """(текущее занятие или None, следующее занятие или None) относительно текущего времени вуза."""
     now = now_local()
     current = None
@@ -168,22 +246,51 @@ def upcoming_changes(db: Session, group_code: str, days: int = 7) -> list[Lesson
     return out
 
 
+def slot_taken(db: Session, group_code: str, d: date, pair_no: int) -> bool:
+    """Занят ли у группы слот: в этот день и на эту пару уже стоит занятие, которое состоится."""
+    return any(v.happens and not v.is_exam and v.pair_no == pair_no for v in lessons_for_date(db, group_code, d))
+
+
+# ---------------------------- Экспорт в календарь (RFC 5545) ----------------------------
+
 def _ics_escape(s: str) -> str:
     return s.replace("\\", "\\\\").replace(";", "\\;").replace(",", "\\,").replace("\n", "\\n")
 
 
+def _fold(line: str) -> str:
+    """Строки длиннее 75 байт переносятся, продолжение начинается с пробела (RFC 5545, раздел 3.1)."""
+    out, cur = [], b""
+    for ch in line:
+        b = ch.encode()
+        limit = 75 if not out else 74  # у строк-продолжений первый байт занимает пробел
+        if len(cur) + len(b) > limit:
+            out.append(cur.decode())
+            cur = b""
+        cur += b
+    out.append(cur.decode())
+    return "\r\n ".join(out)
+
+
+VTIMEZONE = [
+    "BEGIN:VTIMEZONE", "TZID:Europe/Moscow",
+    "BEGIN:STANDARD", "DTSTART:19700101T000000", "TZOFFSETFROM:+0300", "TZOFFSETTO:+0300", "TZNAME:MSK",
+    "END:STANDARD", "END:VTIMEZONE",
+]
+
+
 def week_ics(db: Session, group_code: str, monday: date) -> str:
     lines = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//Dekanat Next concept//RU", "CALSCALE:GREGORIAN",
-             "X-WR-TIMEZONE:Europe/Moscow"]
+             "METHOD:PUBLISH", "X-WR-TIMEZONE:Europe/Moscow", *VTIMEZONE]
     stamp = utcnow().strftime("%Y%m%dT%H%M%SZ")
     for d, lessons in week_lessons(db, group_code, monday):
         for v in lessons:
             if not v.happens:
                 continue
             where = "Онлайн" if v.online else f"ауд. {v.room}, {v.building}"
+            uid = f"{d:%Y%m%d}-{v.start:%H%M}-{v.template_id or v.kind}@dekanat-next"
             lines += [
                 "BEGIN:VEVENT",
-                f"UID:{d:%Y%m%d}-{v.pair_no}-{v.template_id}@dekanat-next",
+                f"UID:{uid}",
                 f"DTSTAMP:{stamp}",
                 f"DTSTART;TZID=Europe/Moscow:{v.start_dt:%Y%m%dT%H%M%S}",
                 f"DTEND;TZID=Europe/Moscow:{v.end_dt:%Y%m%dT%H%M%S}",
@@ -193,4 +300,4 @@ def week_ics(db: Session, group_code: str, monday: date) -> str:
                 "END:VEVENT",
             ]
     lines.append("END:VCALENDAR")
-    return "\r\n".join(lines) + "\r\n"
+    return "\r\n".join(_fold(x) for x in lines) + "\r\n"

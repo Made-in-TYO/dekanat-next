@@ -30,9 +30,10 @@
     <h2>Безопасность</h2>
     <form method="post" action="/profile/password" class="form" data-submit-once>
       <input type="hidden" name="csrf_token" value="{{ csrf }}">
+      {% if user.is_demo %}<p class="alert alert-info">{{ icon('info') }}<span>Это общий тестовый аккаунт для жюри, поэтому смена пароля в нем отключена. Форма показывает, как это устроено в настоящем кабинете.</span></p>{% endif %}
       {% if pw_error %}<p class="alert alert-bad" role="alert">{{ icon('triangle-alert') }}<span>{{ pw_error }}</span></p>{% endif %}
       <div class="field"><label for="current">Текущий пароль</label>
-        <input class="input" id="current" name="current" type="password" autocomplete="current-password" required></div>
+        <input class="input" id="current" name="current" type="password" autocomplete="current-password" required{% if pw_error %} autofocus{% endif %}></div>
       <div class="field"><label for="new">Новый пароль</label>
         <input class="input" id="new" name="new" type="password" autocomplete="new-password" minlength="8" required>
         <p class="hint">Не короче 8 символов</p></div>
@@ -43,10 +44,10 @@
     <p class="muted small">{{ icon('shield-check') }} Пароль хранится только в виде хеша argon2id. После смены пароля другие сеансы завершаются.</p>
 
     <h2 class="mt">Оформление</h2>
-    <div class="theme-choice" role="radiogroup" aria-label="Тема оформления">
-      <button type="button" data-set-theme="light" role="radio">{{ icon('sun') }}Светлая</button>
-      <button type="button" data-set-theme="dark" role="radio">{{ icon('moon') }}Темная</button>
-      <button type="button" data-set-theme="auto" role="radio">{{ icon('monitor') }}Как в системе</button>
+    <div class="theme-choice" role="group" aria-label="Тема оформления">
+      <button type="button" data-set-theme="light" aria-pressed="false">{{ icon('sun') }}Светлая</button>
+      <button type="button" data-set-theme="dark" aria-pressed="false">{{ icon('moon') }}Темная</button>
+      <button type="button" data-set-theme="auto" aria-pressed="false">{{ icon('monitor') }}Как в системе</button>
     </div>
     <p class="muted small install-hint" data-install-hint>{{ icon('download') }} Кабинет можно добавить на экран телефона как приложение: в браузере выберите «На экран Домой».</p>
 

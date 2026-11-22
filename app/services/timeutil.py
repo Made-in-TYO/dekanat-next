@@ -109,3 +109,27 @@ def until_text(target: datetime) -> str:
     if days == 2:
         return "послезавтра"
     return f"через {days} {plural(days, 'день', 'дня', 'дней')}"
+
+
+def week_label(d: date) -> str:
+    """'13-я учебная неделя, нечетная' или 'зимняя сессия' после окончания занятий."""
+    from .. import config
+    end = datetime.strptime(config.SEMESTER_END, "%Y-%m-%d").date()
+    start = datetime.strptime(SEMESTER_START, "%Y-%m-%d").date()
+    if d > end:
+        return "зимняя сессия"
+    if d < start:
+        return "до начала семестра"
+    n = semester_week(d)
+    return f"{n}-я учебная неделя, {'нечетная' if n % 2 else 'четная'}"
+
+
+def greeting(dt: datetime | None = None) -> str:
+    h = (dt or now_local()).hour
+    if 5 <= h < 12:
+        return "Доброе утро"
+    if 12 <= h < 18:
+        return "Добрый день"
+    if 18 <= h < 23:
+        return "Добрый вечер"
+    return "Доброй ночи"

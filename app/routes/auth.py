@@ -1,11 +1,14 @@
 """Вход и выход."""
-from fastapi import APIRouter, Depends, Form, Request
+from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import RedirectResponse
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from .. import config
 from ..db import get_db
-from ..security import authenticate, check_csrf, client_ip, create_session, destroy_session, get_session
+from ..models import User
+from ..security import (authenticate, check_csrf, client_ip, create_session, destroy_session, get_session,
+                        is_https)
 from ..seed import DEMO_ACCOUNTS
 from ..web import render
 
@@ -51,9 +54,30 @@ def login_submit(request: Request, login: str = Form(""), password: str = Form("
     if user.role == "staff" and not target.startswith("/staff"):
         target = "/staff"
     resp = RedirectResponse(target, status_code=303)
-    secure = config.COOKIE_SECURE or request.url.scheme == "https"
-    resp.set_cookie(config.SESSION_COOKIE, token, httponly=True, secure=secure, samesite="lax",
+    _set_cookie(request, resp, token)
+    return resp
+
+
+def _set_cookie(request: Request, resp, token: str) -> None:
+    resp.set_cookie(config.SESSION_COOKIE, token, httponly=True, secure=is_https(request), samesite="lax",
                     max_age=config.SESSION_TTL_HOURS * 3600, path="/")
+
+
+@router.post("/demo/switch")
+def demo_switch(request: Request, to: str = Form(...), csrf_token: str = Form(""), db: Session = Depends(get_db)):
+    """Быстрое переключение между тестовыми аккаунтами для жюри: студент <-> деканат без выхода.
+    Работает только между общими демо-аккаунтами и только из демо-аккаунта."""
+    s = get_session(db, request)
+    if s is None:
+        return RedirectResponse("/login", status_code=303)
+    check_csrf(s, csrf_token)
+    target = db.scalar(select(User).where(User.login == to))
+    if not s.user.is_demo or target is None or not target.is_demo:
+        raise HTTPException(status_code=403)
+    destroy_session(db, request.cookies.get(config.SESSION_COOKIE))
+    token = create_session(db, target)
+    resp = RedirectResponse(_home_for(target.role), status_code=303)
+    _set_cookie(request, resp, token)
     return resp
 
 

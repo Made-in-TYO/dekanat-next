@@ -5,7 +5,7 @@ import secrets
 import threading
 import time
 from collections import defaultdict, deque
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 from argon2 import PasswordHasher
 from argon2.exceptions import InvalidHashError, VerificationError, VerifyMismatchError
@@ -40,58 +40,73 @@ def _token_hash(token: str) -> str:
     return hashlib.sha256(token.encode()).hexdigest()
 
 
-# ---------- Ограничение попыток входа по IP (в памяти процесса) ----------
+# ---------- Защита от подбора пароля (в памяти процесса) ----------
+# Блокируем пару "логин + IP", а не логин целиком: иначе любой посетитель мог бы
+# пятью неверными паролями закрыть общий демо-аккаунт для всего жюри.
+# Одинаково работает для существующих и несуществующих логинов, поэтому по ответу
+# нельзя узнать, есть ли такой пользователь.
+_fails: dict[tuple[str, str], list] = defaultdict(list)   # (логин, ip) -> [счетчик, заблокирован_до]
 _ip_fails: dict[str, deque] = defaultdict(deque)
-_ip_lock = threading.Lock()
+_lock = threading.Lock()
 
 
-def ip_blocked(ip: str) -> bool:
-    window = config.IP_WINDOW_MINUTES * 60
-    now = time.monotonic()
-    with _ip_lock:
-        q = _ip_fails[ip]
-        while q and now - q[0] > window:
-            q.popleft()
-        return len(q) >= config.IP_MAX_FAILS
+def _ip_blocked(ip: str, now: float) -> bool:
+    q = _ip_fails[ip]
+    while q and now - q[0] > config.IP_WINDOW_MINUTES * 60:
+        q.popleft()
+    return len(q) >= config.IP_MAX_FAILS
 
 
-def ip_register_fail(ip: str) -> None:
-    with _ip_lock:
-        _ip_fails[ip].append(time.monotonic())
+def _lock_left(login: str, ip: str, now: float) -> int:
+    """Сколько минут еще действует блокировка пары логин + IP (0, если не заблокирована)."""
+    rec = _fails.get((login, ip))
+    if rec and rec[1] > now:
+        return max(1, int((rec[1] - now) // 60) + 1)
+    return 0
 
 
-def reset_ip_limits() -> None:  # используется в тестах
-    with _ip_lock:
+def _register_fail(login: str, ip: str, now: float) -> None:
+    _ip_fails[ip].append(now)
+    rec = _fails[(login, ip)]
+    if not rec:
+        rec.extend([0, 0.0])
+    rec[0] += 1
+    if rec[0] >= config.MAX_FAILED_LOGINS:
+        rec[0] = 0
+        rec[1] = now + config.LOCK_MINUTES * 60
+
+
+def reset_login_limits() -> None:  # используется в тестах и при сбросе демо
+    with _lock:
+        _fails.clear()
         _ip_fails.clear()
+
+
+reset_ip_limits = reset_login_limits  # совместимость со старым именем
 
 
 def authenticate(db: Session, login: str, password: str, ip: str) -> tuple[User | None, str | None]:
     """Возвращает (пользователь, None) или (None, текст ошибки)."""
     generic = "Неверный логин или пароль"
-    if ip_blocked(ip):
-        return None, "Слишком много попыток входа. Подождите несколько минут и попробуйте снова"
-    user = db.scalar(select(User).where(User.login == login.strip().lower()))
-    now = utcnow()
-    if user is None:
-        verify_password(_DUMMY_HASH, password)
-        ip_register_fail(ip)
-        return None, generic
-    if user.locked_until and user.locked_until > now:
-        mins = max(1, int((user.locked_until - now).total_seconds() // 60) + 1)
+    login = login.strip().lower()
+    now = time.monotonic()
+    with _lock:
+        if _ip_blocked(ip, now):
+            return None, "Слишком много попыток входа с этого адреса. Подождите несколько минут и попробуйте снова"
+        mins = _lock_left(login, ip, now)
+    if mins:
         return None, f"Вход временно заблокирован после нескольких неудачных попыток. Попробуйте через {mins} мин"
-    if not verify_password(user.password_hash, password):
-        user.failed_logins += 1
-        if user.failed_logins >= config.MAX_FAILED_LOGINS:
-            user.locked_until = now + timedelta(minutes=config.LOCK_MINUTES)
-            user.failed_logins = 0
-        db.commit()
-        ip_register_fail(ip)
+    user = db.scalar(select(User).where(User.login == login))
+    ok = verify_password(user.password_hash if user else _DUMMY_HASH, password) and user is not None
+    if not ok:
+        with _lock:
+            _register_fail(login, ip, now)
         return None, generic
-    user.failed_logins = 0
-    user.locked_until = None
+    with _lock:
+        _fails.pop((login, ip), None)
     if _ph.check_needs_rehash(user.password_hash):
         user.password_hash = hash_password(password)
-    db.commit()
+        db.commit()
     return user, None
 
 
@@ -166,13 +181,21 @@ def require_staff(s: AuthSession = Depends(current_session)) -> AuthSession:
 
 def check_csrf(s: AuthSession, token: str | None) -> None:
     """Каждая форма, меняющая данные, несет секретный токен сессии."""
-    if not token or not hmac.compare_digest(s.csrf_token, token):
+    if not token or not hmac.compare_digest(s.csrf_token.encode(), token.encode("utf-8", "replace")):
         raise HTTPException(status_code=403, detail="csrf")
 
 
 def client_ip(request: Request) -> str:
-    # За прокси хостинга реальный адрес приходит в X-Forwarded-For (берем первый)
+    """Адрес клиента. За прокси хостинга он приходит в X-Forwarded-For.
+    Берем самый правый адрес: его дописывает сам прокси, а левые части клиент может подделать."""
     fwd = request.headers.get("x-forwarded-for")
     if fwd:
-        return fwd.split(",")[0].strip()
+        parts = [p.strip() for p in fwd.split(",") if p.strip()]
+        if parts:
+            return parts[-1]
     return request.client.host if request.client else "unknown"
+
+
+def is_https(request: Request) -> bool:
+    return (config.COOKIE_SECURE or request.url.scheme == "https"
+            or request.headers.get("x-forwarded-proto", "").split(",")[-1].strip() == "https")

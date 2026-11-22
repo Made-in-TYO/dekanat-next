@@ -14,8 +14,8 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from . import config
 from .routes import auth, public, staff, student
-from .security import LoginRequired
-from .seed import init_db
+from .security import LoginRequired, is_https
+from .seed import ensure_demo_fresh, init_db
 from .web import render
 
 log = logging.getLogger("dekanat")
@@ -48,6 +48,9 @@ CSP = ("default-src 'self'; img-src 'self' data:; style-src 'self'; script-src '
 
 @app.middleware("http")
 async def security_middleware(request: Request, call_next):
+    # Демо-данные обновляются раз в сутки: первая страница нового дня пересоздает базу
+    if not request.url.path.startswith("/static"):
+        ensure_demo_fresh()
     # Запросы, меняющие данные, принимаем только со своего сайта (защита от CSRF вдобавок к токену в формах)
     if request.method not in ("GET", "HEAD", "OPTIONS"):
         origin = request.headers.get("origin")
@@ -63,7 +66,7 @@ async def security_middleware(request: Request, call_next):
     h.setdefault("Referrer-Policy", "same-origin")
     h.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=()")
     h.setdefault("Cross-Origin-Opener-Policy", "same-origin")
-    if config.COOKIE_SECURE or request.url.scheme == "https":
+    if is_https(request):
         h.setdefault("Strict-Transport-Security", "max-age=31536000")
     # Личные страницы не кешируем в браузере и прокси
     if not request.url.path.startswith("/static"):

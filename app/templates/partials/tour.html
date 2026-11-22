@@ -1,0 +1,37 @@
+{# Подсказка для жюри: показывается только в общих тестовых аккаунтах #}
+<details class="tour" data-tour>
+  <summary class="tour-head">
+    <span class="tour-title">{{ icon('sparkles') }}<span>Для жюри: что попробовать за 2 минуты</span></span>
+    {{ icon('chevron-right', 'ic tour-chev') }}
+  </summary>
+  <div class="tour-body">
+  {% if user.role == 'staff' %}
+  <ol class="tour-steps">
+    <li>Откройте <a href="/staff/requests">заявку</a> и смените статус: студент сразу получит уведомление.</li>
+    <li>В <a href="/staff/schedule">расписании</a> поменяйте аудиторию или отмените пару: изменение увидит вся группа.</li>
+    <li>Ответьте студенту в <a href="/staff/messages">вопросах</a> или опубликуйте объявление.</li>
+    <li>Вернитесь в кабинет студента и посмотрите, что у него изменилось.</li>
+  </ol>
+  {% else %}
+  <ol class="tour-steps">
+    <li>Табло ниже отвечает на главный вопрос: где и когда следующая пара, и не изменилось ли что-то.</li>
+    <li>Закажите <a href="/requests/new?type=study">справку об обучении</a> в электронном виде.</li>
+    <li>Переключитесь на кабинет деканата кнопкой ниже и выдайте справку. Вернитесь: статус, уведомление и справка с QR-кодом уже здесь.</li>
+    <li>В разделе <a href="/grades">Учеба</a> раскройте дисциплину и попробуйте калькулятор «что если».</li>
+  </ol>
+  {% endif %}
+  <div class="tour-actions">
+    {% if user.role == 'staff' %}
+      {% for lg, name in [('kira', 'Войти как Кира'), ('timur', 'Войти как Тимур')] %}
+      <form method="post" action="/demo/switch"><input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="to" value="{{ lg }}">
+        <button class="btn btn-secondary btn-sm" type="submit">{{ icon('user-round') }}{{ name }}</button></form>
+      {% endfor %}
+    {% else %}
+      <form method="post" action="/demo/switch"><input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="to" value="dekanat">
+        <button class="btn btn-secondary btn-sm" type="submit">{{ icon('building-2') }}Посмотреть как деканат</button></form>
+    {% endif %}
+  </div>
+  <p class="muted small">Это общие тестовые аккаунты. Демо-данные обновляются каждый день, поэтому ничего не сломать.
+    <button type="button" class="link-btn" data-tour-hide>Больше не показывать</button></p>
+  </div>
+</details>

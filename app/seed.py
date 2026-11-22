@@ -5,13 +5,14 @@
 """
 import secrets
 import sys
+import threading
 from datetime import date, datetime, time, timedelta
 
 from sqlalchemy import select
 
 from .db import Base, SessionLocal, engine
 from .models import (Announcement, Deadline, Discipline, Enrollment, ExamEvent, LessonChange, LessonTemplate,
-                     Message, Notification, PastResult, RequestEvent, ScoreItem, Student, StudentRequest, User)
+                     Message, Meta, Notification, PastResult, RequestEvent, ScoreItem, Student, StudentRequest, User)
 from .security import hash_password
 from .services.catalog import DEKANAT_PLACE
 from .services.timeutil import now_local, week_monday
@@ -44,11 +45,11 @@ def seed(db) -> None:
     mon = week_monday(base)
 
     # ---------------- Пользователи ----------------
-    staff = User(login="dekanat", password_hash=hash_password("Dekanat-2026"), role="staff",
+    staff = User(login="dekanat", password_hash=hash_password("Dekanat-2026"), role="staff", is_demo=True,
                  full_name="Мельникова Ольга Сергеевна", position="Специалист по учебной работе")
-    u_kira = User(login="kira", password_hash=hash_password("Kira-2026"), role="student",
+    u_kira = User(login="kira", password_hash=hash_password("Kira-2026"), role="student", is_demo=True,
                   full_name="Воронцова Кира Андреевна")
-    u_timur = User(login="timur", password_hash=hash_password("Timur-2026"), role="student",
+    u_timur = User(login="timur", password_hash=hash_password("Timur-2026"), role="student", is_demo=True,
                    full_name="Галиев Тимур Ринатович")
     db.add_all([staff, u_kira, u_timur])
     db.flush()
@@ -292,18 +293,21 @@ def seed(db) -> None:
                             read_at=created if read else None))
 
     sched_link = f"/schedule?view=week&date={mon.isoformat()}"
-    n(u_kira, "schedule", "Перенос: Бизнес-планирование", "Лекция со вторника перенесена на пятницу, 5 пара, онлайн.", sched_link, 2)
-    n(u_kira, "schedule", "Другая аудитория в понедельник", "Стратегическое обновление: аудитория 1229 вместо 2207.", sched_link, 3)
+    n(u_kira, "schedule", "Перенос: Бизнес-планирование", "Лекция со вторника перенесена на пятницу, 5-я пара, онлайн.", sched_link, 2)
+    n(u_kira, "schedule", "Другая аудитория в понедельник", "Стратегическое обновление: пара в ауд. 1229 вместо 2207.", sched_link, 3)
     n(u_kira, "request", "Справка об обучении готова", "Заявка СП-2026-0412. Электронная справка с QR-кодом доступна в заявке.",
       f"/requests/{r1.id}", 70, read=True)
-    n(u_kira, "news", "Опубликовано расписание зимней сессии", "Даты консультаций и экзаменов в разделе Учеба.", "/grades?tab=session", 52, read=True)
-    n(u_kira, "news", "Встреча с научными руководителями", "Четверг, 18:40, ауд. 1216 или онлайн.", "/notifications", 26)
     n(u_kira, "message", "Деканат ответил на ваш вопрос", "Про перезачет дисциплины.", "/messages", 30, read=True)
 
     n(u_timur, "schedule", "Отмена: Физика в понедельник", "Лекция в 8:20 отменена, преподаватель заболел.", sched_link, 1)
-    n(u_timur, "schedule", "Перенос: Алгоритмы и структуры данных", "Практика с четверга перенесена на субботу, 3 пара.", sched_link, 4)
+    n(u_timur, "schedule", "Перенос: Алгоритмы и структуры данных", "Практика с четверга перенесена на субботу, 3-я пара.", sched_link, 4)
     n(u_timur, "request", "Нужно уточнение по заявке СП-2026-0461", "Деканат задал вопрос по выписке оценок.", None, 40)
-    n(u_timur, "news", "Опубликовано расписание зимней сессии", "Даты консультаций и экзаменов в разделе Учеба.", "/grades?tab=session", 52)
+    # Каждое объявление приходит уведомлением всем, кому оно адресовано (как при публикации из кабинета деканата)
+    for a in ann:
+        for u, st in ((u_kira, kira), (u_timur, timur)):
+            if a.audience == "all" or a.audience == f"group:{st.group_code}":
+                hours = (now - (a.created_at + timedelta(hours=3))).total_seconds() / 3600
+                n(u, "news", a.title, a.body[:200], "/notifications?kind=news", hours, read=hours > 48)
     db.flush()
     # ссылка на заявку Тимура
     timur_req = db.scalar(select(StudentRequest).where(StudentRequest.number == "СП-2026-0461"))
@@ -317,7 +321,8 @@ def seed(db) -> None:
                 created_at=_to_utc(now - timedelta(hours=34))),
         Message(student_id=kira.id, author_id=staff.id, from_staff=True, read_by_student=True, read_by_staff=True,
                 body="Здравствуйте, Кира! В магистратуре перезачет возможен, если совпадает объем часов. "
-                     "Подайте заявление через раздел Заявки и приложите выписку. Ответим за 5 рабочих дней.",
+                     "Напишите сюда, в каком году и с каким количеством часов сдавали английский, мы сверим "
+                     "с учебным планом и ответим за 5 рабочих дней.",
                 created_at=_to_utc(now - timedelta(hours=30))),
         Message(student_id=timur.id, author_id=u_timur.id, from_staff=False, read_by_student=True, read_by_staff=False,
                 body="Добрый день! Я потерял студенческий, заявку на дубликат отправил. Нужно ли что-то еще?",
@@ -333,6 +338,38 @@ def init_db(reset: bool = False) -> None:
     with SessionLocal() as db:
         if db.scalar(select(User.id).limit(1)) is None:
             seed(db)
+            db.merge(Meta(key="seeded_on", value=now_local().date().isoformat()))
+            db.commit()
+
+
+_fresh_lock = threading.Lock()
+_checked_on: str | None = None
+
+
+def ensure_demo_fresh() -> bool:
+    """Пересоздает демо-базу, если она создана не сегодня (по Москве).
+    Так даты в расписании, дедлайнах и заявках всегда актуальны, а все, что посетители
+    поменяли в общих демо-аккаунтах, исчезает на следующий день. Возвращает True, если был сброс."""
+    global _checked_on
+    from . import config
+    today = now_local().date().isoformat()
+    if not config.DEMO_DAILY_RESET or _checked_on == today:
+        return False
+    with _fresh_lock:
+        if _checked_on == today:
+            return False
+        with SessionLocal() as db:
+            try:
+                seeded = db.get(Meta, "seeded_on")
+            except Exception:
+                seeded = None
+            fresh = seeded is not None and seeded.value == today
+        if not fresh:
+            init_db(reset=True)
+            from .security import reset_login_limits
+            reset_login_limits()
+        _checked_on = today
+        return not fresh
 
 
 if __name__ == "__main__":

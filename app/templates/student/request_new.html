@@ -17,11 +17,12 @@
   <div class="field{% if errors.purpose %} has-error{% endif %}">
     <label for="purpose">{{ 'Для чего нужна справка' if t.kind == 'certificate' else 'Причина' }}</label>
     <input class="input" id="purpose" name="purpose" maxlength="200" required value="{{ form.purpose or '' }}"
-           placeholder="{{ t.purpose_hint }}"{% if errors.purpose %} aria-invalid="true" aria-describedby="purpose-err"{% endif %}>
+           placeholder="{{ t.purpose_hint }}"{% if errors.purpose %} aria-invalid="true" aria-describedby="purpose-err" autofocus{% endif %}>
     {% if errors.purpose %}<p class="field-error" id="purpose-err">{{ errors.purpose }}</p>{% endif %}
   </div>
   {% endif %}
 
+  {% if t.formats|length > 1 %}
   <fieldset class="field{% if errors.fmt %} has-error{% endif %}">
     <legend>Формат</legend>
     <div class="choice-list">
@@ -35,6 +36,10 @@
     </div>
     {% if errors.fmt %}<p class="field-error">{{ errors.fmt }}</p>{% endif %}
   </fieldset>
+  {% else %}
+  <input type="hidden" name="fmt" value="{{ t.formats[0] }}">
+  <p class="format-note">{{ icon('info') }}<span>{% if t.kind == 'application' %}Заявление рассматривает деканат. Решение придет в уведомления и появится в заявке.{% elif t.kind == 'document' %}Готовый документ нужно забрать лично в деканате, мы пришлем уведомление.{% else %}Только бумажный вариант с подписью и печатью. Заберете в деканате, мы пришлем уведомление.{% endif %}</span></p>
+  {% endif %}
 
   {% if 'paper' in t.formats and t.kind == 'certificate' %}
   <div class="field{% if errors.copies %} has-error{% endif %}" data-copies>

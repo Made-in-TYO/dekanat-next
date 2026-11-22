@@ -17,8 +17,7 @@ class User(Base):
     role: Mapped[str] = mapped_column(String(16))  # student | staff
     full_name: Mapped[str] = mapped_column(String(128))
     position: Mapped[str | None] = mapped_column(String(128), nullable=True)  # для сотрудников
-    failed_logins: Mapped[int] = mapped_column(Integer, default=0)
-    locked_until: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    is_demo: Mapped[bool] = mapped_column(Boolean, default=False)  # общий тестовый аккаунт для жюри
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
     student: Mapped["Student | None"] = relationship(back_populates="user", uselist=False)
@@ -244,3 +243,10 @@ class AuthSession(Base):
     expires_at: Mapped[datetime] = mapped_column(DateTime)
 
     user: Mapped[User] = relationship()
+
+
+class Meta(Base):
+    """Служебные значения: например, дата, когда были созданы демо-данные."""
+    __tablename__ = "meta"
+    key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    value: Mapped[str] = mapped_column(String(255))

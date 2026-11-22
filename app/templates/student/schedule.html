@@ -4,20 +4,20 @@
 {% block content %}
 <header class="page-head">
   <h1>Расписание</h1>
-  <p class="muted">Группа {{ st.group_code }}, {{ week_no }} неделя, {{ 'нечетная' if parity == 'odd' else 'четная' }}</p>
+  <p class="muted">Группа {{ st.group_code }}, {{ week_label(d) }}</p>
 </header>
 
 <div class="toolbar">
-  <div class="segmented" role="tablist" aria-label="Вид расписания">
-    <a role="tab" href="/schedule?view=day&date={{ d.isoformat() }}" class="{% if view == 'day' %}is-active{% endif %}" aria-selected="{{ 'true' if view == 'day' else 'false' }}">День</a>
-    <a role="tab" href="/schedule?view=week&date={{ d.isoformat() }}" class="{% if view == 'week' %}is-active{% endif %}" aria-selected="{{ 'true' if view == 'week' else 'false' }}">Неделя</a>
-  </div>
+  <nav class="segmented" aria-label="Вид расписания">
+    <a href="/schedule?view=day&date={{ d.isoformat() }}" class="{% if view == 'day' %}is-active{% endif %}"{% if view == 'day' %} aria-current="page"{% endif %}>День</a>
+    <a href="/schedule?view=week&date={{ d.isoformat() }}" class="{% if view == 'week' %}is-active{% endif %}"{% if view == 'week' %} aria-current="page"{% endif %}>Неделя</a>
+  </nav>
   <div class="week-nav">
     <a class="icon-btn" href="/schedule?view={{ view }}&date={{ (monday - timedelta(days=7)).isoformat() }}" aria-label="Предыдущая неделя">{{ icon('chevron-left') }}</a>
     <span class="week-label">{{ monday|fdate }} - {{ (monday + timedelta(days=5))|fdate }}</span>
     <a class="icon-btn" href="/schedule?view={{ view }}&date={{ (monday + timedelta(days=7)).isoformat() }}" aria-label="Следующая неделя">{{ icon('chevron-right') }}</a>
   </div>
-  {% if monday != today - timedelta(days=today.weekday()) or d != today %}<a class="btn btn-ghost btn-sm" href="/schedule?view={{ view }}">Сегодня</a>{% endif %}
+  {% if d != default_day %}<a class="btn btn-ghost btn-sm" href="/schedule?view={{ view }}">{{ 'Сегодня' if default_day == today else 'Ближайший учебный день' }}</a>{% endif %}
   <a class="btn btn-ghost btn-sm" href="/schedule/week.ics?date={{ monday.isoformat() }}" download>{{ icon('calendar-plus') }}В календарь</a>
 </div>
 
@@ -25,16 +25,17 @@
   <nav class="weekstrip" aria-label="Дни недели">
     {% for x in strip %}
     <a href="/schedule?view=day&date={{ x.isoformat() }}" class="{% if x == d %}is-active{% endif %}{% if x == today %} is-today{% endif %}"{% if x == d %} aria-current="date"{% endif %}>
-      <span>{{ WEEKDAYS_SHORT[x.weekday()] }}</span><b>{{ x.day }}</b><small>{% if counts[x] %}{{ counts[x] }} {{ plural(counts[x], 'пара', 'пары', 'пар') }}{% else %}нет пар{% endif %}</small>
+      <span>{{ WEEKDAYS_SHORT[x.weekday()] }}</span><b>{{ x.day }}</b><small>{% if counts[x] %}{{ counts[x] }} {{ plural(counts[x], 'занятие', 'занятия', 'занятий') }}{% else %}нет пар{% endif %}</small>
     </a>
     {% endfor %}
   </nav>
   <section class="section">
-    <h2 class="day-title">{{ d|human_day|capitalize }}{% if d|human_day != d|fdate %}, {{ d|fdate }}{% endif %}, {{ WEEKDAYS[d.weekday()]|lower }}</h2>
+    {% set hd = d|human_day %}
+    <h2 class="day-title">{% if hd in ('сегодня', 'завтра', 'вчера') %}{{ hd|capitalize }}, {{ d|fdate }}{% else %}{{ d|fdate(with_year=d.year != today.year) }}{% endif %}, {{ WEEKDAYS[d.weekday()]|lower }}</h2>
     {% if lessons %}
       <ol class="timeline">{% for v in lessons %}{{ ui.lesson_row(v, now) }}{% endfor %}</ol>
     {% else %}
-      {{ ui.empty('calendar-days', 'В этот день пар нет', 'Выберите другой день недели или переключитесь на всю неделю.') }}
+      {{ ui.empty('calendar-days', 'В этот день пар нет', (day_note(d) ~ '. ' if day_note(d) else '') ~ 'Выберите другой день недели или переключитесь на всю неделю.') }}
     {% endif %}
   </section>
 {% else %}
@@ -44,7 +45,7 @@
       <h2>{{ WEEKDAYS[day.weekday()] }} <span class="muted">{{ day|fdate }}</span>{% if day == today %} <span class="chip chip-brand">сегодня</span>{% endif %}</h2>
       {% if lessons %}
         <ol class="timeline timeline-compact">{% for v in lessons %}{{ ui.lesson_row(v, now, compact=True) }}{% endfor %}</ol>
-      {% else %}<p class="muted small">Пар нет</p>{% endif %}
+      {% else %}<p class="muted small">{{ day_note(day) or 'Пар нет' }}</p>{% endif %}
     </section>
     {% endfor %}
   </div>
@@ -52,6 +53,6 @@
 
 <details class="legend">
   <summary>Время пар</summary>
-  <ul>{% for n, (a, b) in PAIRS.items() %}<li><b>{{ n }}</b> {{ a|hm }}-{{ b|hm }}</li>{% endfor %}</ul>
+  <ul>{% for n, (a, b) in PAIRS.items() %}<li><b>{{ n }}-я</b> {{ a|hm }}-{{ b|hm }}</li>{% endfor %}</ul>
 </details>
 {% endblock %}

@@ -14,7 +14,7 @@ from ..models import (Announcement, AuthSession, Deadline, Enrollment, ExamEvent
 from ..security import check_csrf, destroy_other_sessions, hash_password, require_student, verify_password
 from ..services import grades as G
 from ..services import schedule as S
-from ..services.catalog import ACTIVE, TYPES, REQUEST_TYPES
+from ..services.catalog import REQUEST_TYPES, TYPES, is_active
 from ..services.notify import notify
 from ..services.timeutil import (WEEKDAYS, WEEKDAYS_SHORT, now_local, semester_week, today, utcnow,
                                  week_monday, week_parity)
@@ -28,11 +28,22 @@ def _student(s: AuthSession):
     return s.user.student
 
 
-def _parse_date(value: str | None) -> date:
+def _parse_date(value: str | None, default: date | None = None) -> date:
+    """Дата из адреса. Неверная или слишком далекая (больше 2 лет) заменяется значением по умолчанию."""
+    default = default or today()
     try:
-        return date.fromisoformat(value) if value else today()
+        d = date.fromisoformat(value) if value else default
     except ValueError:
-        return today()
+        return default
+    if abs((d - today()).days) > config.DATE_RANGE_DAYS:
+        return default
+    return d
+
+
+def _default_schedule_day() -> date:
+    """В воскресенье пар нет, поэтому расписание по умолчанию открывается на понедельнике."""
+    t = today()
+    return t + timedelta(days=1) if t.weekday() == 6 else t
 
 
 def _own_request(db: Session, s: AuthSession, request_id: int) -> StudentRequest:
@@ -59,12 +70,12 @@ def home(request: Request, s: AuthSession = Depends(require_student), db: Sessio
     current, nxt = S.current_and_next(db, st.group_code)
     lessons_today = S.lessons_for_date(db, st.group_code, now.date())
     changes = S.upcoming_changes(db, st.group_code, days=7)
-    deadlines = db.scalars(select(Deadline).where(Deadline.student_id == st.id, Deadline.done.is_(False),
+    deadlines = db.scalars(select(Deadline).where(Deadline.student_id == st.id,
                                                   Deadline.due_at >= now, Deadline.due_at <= now + timedelta(days=14))
-                           .order_by(Deadline.due_at)).all()
-    active_reqs = db.scalars(select(StudentRequest).where(StudentRequest.student_id == st.id,
-                                                          StudentRequest.status.in_(ACTIVE))
-                             .order_by(StudentRequest.updated_at.desc()).limit(3)).all()
+                           .order_by(Deadline.done, Deadline.due_at)).all()
+    all_reqs = db.scalars(select(StudentRequest).where(StudentRequest.student_id == st.id)
+                          .order_by(StudentRequest.updated_at.desc())).all()
+    active_reqs = [r for r in all_reqs if is_active(r)][:3]
     enrollments = db.scalars(select(Enrollment).options(selectinload(Enrollment.items), selectinload(Enrollment.discipline))
                              .where(Enrollment.student_id == st.id)).all()
     progress = [G.build_progress(e) for e in enrollments]
@@ -76,7 +87,7 @@ def home(request: Request, s: AuthSession = Depends(require_student), db: Sessio
         "nav": "home", "st": st, "now": now, "current": current, "next": nxt, "lessons_today": lessons_today,
         "changes": changes, "deadlines": deadlines, "active_reqs": active_reqs, "progress": progress,
         "attention": attention, "avg": G.average_five(past), "unread_msgs": unread_msgs,
-        "week_no": semester_week(now.date()), "parity": week_parity(now.date()),
+        "today_note": S.day_note(now.date()),
         "news": _announcements_for(db, st.group_code, 2),
     }, db=db)
 
@@ -85,11 +96,12 @@ def home(request: Request, s: AuthSession = Depends(require_student), db: Sessio
 def schedule(request: Request, view: str = "day", s: AuthSession = Depends(require_student),
              db: Session = Depends(get_db)):
     st = _student(s)
-    d = _parse_date(request.query_params.get("date"))
+    d = _parse_date(request.query_params.get("date"), _default_schedule_day())
     monday = week_monday(d)
     ctx = {"nav": "schedule", "st": st, "view": "week" if view == "week" else "day", "d": d, "monday": monday,
            "week_no": semester_week(d), "parity": week_parity(d), "WEEKDAYS": WEEKDAYS, "WEEKDAYS_SHORT": WEEKDAYS_SHORT,
-           "now": now_local(), "PAIRS": S.PAIRS, "timedelta": timedelta}
+           "now": now_local(), "PAIRS": S.PAIRS, "timedelta": timedelta, "day_note": S.day_note,
+           "default_day": _default_schedule_day()}
     if ctx["view"] == "week":
         ctx["week"] = S.week_lessons(db, st.group_code, monday)
     else:
@@ -102,7 +114,7 @@ def schedule(request: Request, view: str = "day", s: AuthSession = Depends(requi
 @router.get("/schedule/week.ics")
 def schedule_ics(request: Request, s: AuthSession = Depends(require_student), db: Session = Depends(get_db)):
     st = _student(s)
-    monday = week_monday(_parse_date(request.query_params.get("date")))
+    monday = week_monday(_parse_date(request.query_params.get("date"), _default_schedule_day()))
     body = S.week_ics(db, st.group_code, monday)
     return Response(body, media_type="text/calendar; charset=utf-8",
                     headers={"Content-Disposition": f'attachment; filename="raspisanie-{monday.isoformat()}.ics"'})
@@ -125,6 +137,7 @@ def grades(request: Request, tab: str = "current", s: AuthSession = Depends(requ
     return render(request, "student/grades.html", {
         "nav": "grades", "st": st, "tab": tab, "progress": progress, "exams": exams, "semesters": semesters,
         "avg": G.average_five(past), "G": G, "credits": sum(p.credits for p in progress),
+        "debts": sum(1 for r in past if r.points < G.PASS),
         "counts": {k: sum(1 for p in progress if p.state == k) for k in ("ok", "watch", "risk", "fail")},
     }, db=db)
 
@@ -137,8 +150,8 @@ def requests_list(request: Request, s: AuthSession = Depends(require_student), d
     reqs = db.scalars(select(StudentRequest).where(StudentRequest.student_id == st.id)
                       .order_by(StudentRequest.created_at.desc())).all()
     return render(request, "student/requests.html", {
-        "nav": "requests", "active": [r for r in reqs if r.status in ACTIVE],
-        "archive": [r for r in reqs if r.status not in ACTIVE], "catalog": REQUEST_TYPES,
+        "nav": "requests", "active": [r for r in reqs if is_active(r)],
+        "archive": [r for r in reqs if not is_active(r)], "catalog": REQUEST_TYPES, "st": st,
     }, db=db)
 
 
@@ -146,14 +159,19 @@ def requests_list(request: Request, s: AuthSession = Depends(require_student), d
 def request_new(request: Request, type: str = "study", s: AuthSession = Depends(require_student),
                 db: Session = Depends(get_db)):
     t = TYPES.get(type)
-    if t is None:
+    if t is None or not _available(t, _student(s)):
         raise HTTPException(status_code=404)
     return render(request, "student/request_new.html", {"nav": "requests", "t": t, "form": {}}, db=db)
 
 
-def _next_number(db: Session) -> str:
-    n = (db.scalar(select(func.max(StudentRequest.id))) or 0) + 470
-    return f"СП-{today().year}-{n:04d}"
+def _available(t, st) -> bool:
+    """Справка о стипендии доступна только студентам на бюджете."""
+    return not t.budget_only or st.funding == "Бюджет"
+
+
+def _number_for(request_id: int) -> str:
+    """Номер заявки строится из ее идентификатора в базе, поэтому две заявки не получат один номер."""
+    return f"СП-{today().year}-{request_id + 470:04d}"
 
 
 @router.post("/requests")
@@ -162,25 +180,29 @@ def request_create(request: Request, type_code: str = Form(...), purpose: str = 
                    s: AuthSession = Depends(require_student), db: Session = Depends(get_db)):
     check_csrf(s, csrf_token)
     t = TYPES.get(type_code)
-    if t is None:
+    if t is None or not _available(t, _student(s)):
         raise HTTPException(status_code=404)
     purpose, comment = purpose.strip()[:200], comment.strip()[:1000]
+    if len(t.formats) == 1:
+        fmt = t.formats[0]
     errors = {}
     if t.needs_purpose and len(purpose) < 3:
         errors["purpose"] = "Укажите, для чего нужен документ" if t.kind == "certificate" else "Укажите причину"
     if fmt not in t.formats:
         errors["fmt"] = "Выберите формат из предложенных"
-    if not 1 <= copies <= 5:
+    if fmt == "paper" and t.kind == "certificate" and not 1 <= copies <= 5:
         errors["copies"] = "Можно заказать от 1 до 5 экземпляров"
     if errors:
         return render(request, "student/request_new.html", {
             "nav": "requests", "t": t, "errors": errors,
             "form": {"purpose": purpose, "copies": copies, "fmt": fmt, "comment": comment}}, status_code=400, db=db)
     st = _student(s)
-    r = StudentRequest(number=_next_number(db), student_id=st.id, type_code=t.code, purpose=purpose or None,
-                       copies=copies if fmt == "paper" else 1, fmt=fmt, comment=comment or None, status="submitted")
+    r = StudentRequest(number=f"tmp-{secrets.token_hex(8)}", student_id=st.id, type_code=t.code,
+                       purpose=purpose or None, copies=copies if (fmt == "paper" and t.kind == "certificate") else 1,
+                       fmt=fmt, comment=comment or None, status="submitted")
     db.add(r)
     db.flush()
+    r.number = _number_for(r.id)
     db.add(RequestEvent(request_id=r.id, status="submitted", actor="student", comment=comment or None))
     db.commit()
     return RedirectResponse(f"/requests/{r.id}?ok=created", status_code=303)
@@ -235,6 +257,20 @@ def request_document(request: Request, request_id: int, s: AuthSession = Depends
                                                      "verify_url": verify_url}, db=db)
 
 
+# ---------------------------- Дедлайны ----------------------------
+
+@router.post("/deadlines/{deadline_id}/toggle")
+def deadline_toggle(request: Request, deadline_id: int, csrf_token: str = Form(""),
+                    s: AuthSession = Depends(require_student), db: Session = Depends(get_db)):
+    check_csrf(s, csrf_token)
+    d = db.scalar(select(Deadline).where(Deadline.id == deadline_id, Deadline.student_id == _student(s).id))
+    if d is None:
+        raise HTTPException(status_code=404)
+    d.done = not d.done
+    db.commit()
+    return RedirectResponse("/home#deadlines", status_code=303)
+
+
 # ---------------------------- Уведомления ----------------------------
 
 @router.get("/notifications")
@@ -246,9 +282,7 @@ def notifications(request: Request, kind: str = "all", s: AuthSession = Depends(
     else:
         kind = "all"
     items = db.scalars(q.order_by(Notification.created_at.desc()).limit(100)).all()
-    st = _student(s)
-    return render(request, "student/notifications.html", {"nav": "notifications", "items": items, "kind": kind,
-                                                           "news": _announcements_for(db, st.group_code)}, db=db)
+    return render(request, "student/notifications.html", {"nav": "notifications", "items": items, "kind": kind}, db=db)
 
 
 @router.post("/notifications/read-all")
@@ -316,7 +350,10 @@ def change_password(request: Request, current: str = Form(""), new: str = Form("
                     csrf_token: str = Form(""), s: AuthSession = Depends(require_student), db: Session = Depends(get_db)):
     check_csrf(s, csrf_token)
     error = None
-    if not verify_password(s.user.password_hash, current):
+    if s.user.is_demo:
+        # Общие тестовые аккаунты нельзя "угнать" сменой пароля: иначе следующий член жюри не войдет
+        error = "В тестовых аккаунтах смена пароля отключена, чтобы кабинет оставался доступен всем. В настоящем кабинете здесь меняется пароль"
+    elif not verify_password(s.user.password_hash, current):
         error = "Текущий пароль указан неверно"
     elif len(new) < 8:
         error = "Новый пароль должен быть не короче 8 символов"

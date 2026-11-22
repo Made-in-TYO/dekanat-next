@@ -41,7 +41,8 @@ def verify(request: Request, code: str, db: Session = Depends(get_db)):
     if code.isalnum() and len(code) <= 32:
         r = db.scalar(select(StudentRequest).options(selectinload(StudentRequest.student).selectinload(Student.user))
                       .where(StudentRequest.verify_code == code))
-    ok = r is not None and r.status in ("ready", "issued")
+    ok = (r is not None and r.status in ("ready", "issued") and r.fmt == "electronic"
+          and TYPES[r.type_code].kind == "certificate")
     ctx = {"ok": ok}
     if ok:
         ctx.update({"number": r.number, "title": TYPES[r.type_code].title, "issued": r.issued_at,

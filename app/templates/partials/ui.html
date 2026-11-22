@@ -15,10 +15,11 @@
     {% elif v.status == 'room' %}<span class="flag flag-warn">{{ icon('map-pin') }}Другая аудитория</span>
     {% elif v.status == 'teacher' %}<span class="flag flag-warn">{{ icon('users') }}Замена преподавателя</span>
     {% elif v.status == 'online' %}<span class="flag flag-warn">{{ icon('video') }}Онлайн</span>
-    {% elif is_now %}<span class="flag flag-now">Идет сейчас</span>{% endif %}
+    {% elif v.status == 'exam' %}<span class="flag flag-exam">{{ icon('graduation-cap') }}{{ v.kind_label }}</span>{% endif %}
+    {% if is_now %}<span class="flag flag-now">Идет сейчас</span>{% endif %}
     <p class="lesson-title">{{ v.discipline }}</p>
     <p class="lesson-meta">
-      <span>{{ v.kind_label }}</span>
+      {% if not v.is_exam %}<span>{{ v.kind_label }}</span>{% endif %}
       {% if v.online %}<span>{{ icon('video') }}<span>Онлайн</span></span>
       {% else %}<span>{{ icon('map-pin') }}<span>ауд. {% if v.old_room %}<s>{{ v.old_room }}</s> {% endif %}<b>{{ v.room }}</b>{% if not compact %}, {{ v.building }}{% endif %}</span></span>{% endif %}
       <span>{{ icon('user-round') }}<span>{% if v.old_teacher %}<s>{{ v.old_teacher }}</s> {% endif %}{{ v.teacher }}</span></span>
@@ -28,19 +29,19 @@
 </li>
 {%- endmacro %}
 
-{% macro status_chip(code) -%}
-<span class="chip chip-{{ code }}">{{ status_label(code) }}</span>
+{% macro status_chip(r) -%}
+<span class="chip chip-{{ r.status }}{% if r.status == 'ready' and TYPES[r.type_code].kind == 'application' %} chip-approved{% endif %}">{{ status_label(r.status, r.type_code, r.fmt) }}</span>
 {%- endmacro %}
 
 {% macro tracker(r) -%}
 {# Трекер заявки как у доставки: отправлена, в работе, готова #}
 {% set order = {'submitted': 0, 'need_info': 1, 'in_progress': 1, 'ready': 2, 'issued': 2} %}
 {% if r.status in ('rejected', 'cancelled') %}
-  <p class="track-final">{{ icon('circle-x') }}{{ status_label(r.status) }}</p>
+  <p class="track-final">{{ icon('circle-x') }}{{ status_label(r.status, r.type_code, r.fmt) }}</p>
 {% else %}
 {% set pos = order.get(r.status, 0) %}
 <ol class="track" aria-label="Ход заявки">
-  {% for label in ['Отправлена', 'В работе', 'Готова'] %}
+  {% for label in track_labels(r.type_code) %}
   <li class="{% if loop.index0 < pos or (loop.index0 == pos and r.status in ('ready', 'issued')) %}is-done{% elif loop.index0 == pos %}is-current{% endif %}{% if loop.index0 == 1 and r.status == 'need_info' %} is-attention{% endif %}">
     <span class="track-dot" aria-hidden="true"></span>
     <span class="track-label">{% if loop.index0 == 1 and r.status == 'need_info' %}Нужно уточнение{% else %}{{ label }}{% endif %}</span>

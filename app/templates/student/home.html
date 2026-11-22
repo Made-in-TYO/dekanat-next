@@ -4,8 +4,10 @@
 {% block content %}
 <header class="page-head">
   <h1 class="hello">Привет, {{ user.first_name }}</h1>
-  <p class="muted">{{ now.date()|fdate(with_weekday=True) }}, {{ week_no }} учебная неделя, {{ 'нечетная' if parity == 'odd' else 'четная' }}</p>
+  <p class="muted">{{ now.date()|fdate(with_weekday=True)|capitalize }}, {{ week_label(now.date()) }}</p>
 </header>
+
+{% if user.is_demo %}{% include "partials/tour.html" %}{% endif %}
 
 <div class="home-grid">
   <div class="home-main">
@@ -14,10 +16,12 @@
     <section class="board" aria-labelledby="board-title">
       {% if focus %}
         <p class="board-kicker" id="board-title">
-          {% if current and not next %}Идет сейчас, до конца пары
-          {% elif current %}Идет сейчас
-          {% else %}Следующая пара{% endif %}
-          <b data-countdown="{{ (focus.end_dt if current else focus.start_dt).isoformat() }}" data-countdown-mode="{{ 'end' if current else 'start' }}">{{ (focus.end_dt if current else focus.start_dt)|until }}</b>
+          {% if current %}
+            Идет сейчас, до конца <b data-countdown="{{ focus.end_dt.isoformat() }}" data-countdown-mode="end">{{ focus.end_dt|until|replace('через ', '') }}</b> (до {{ focus.end|hm }})
+          {% else %}
+            {% if focus.is_exam %}{{ 'Следующий экзамен' if focus.kind == 'exam' else ('Следующая консультация' if focus.kind == 'consultation' else 'Следующий зачет') }}{% else %}Следующая пара{% endif %}
+            <b data-countdown="{{ focus.start_dt.isoformat() }}" data-countdown-mode="start">{{ focus.start_dt|until }}</b>
+          {% endif %}
         </p>
         <div class="board-main">
           <p class="board-time">{{ focus.start|hm }}</p>
@@ -25,14 +29,17 @@
         </div>
         <p class="board-title">{{ focus.discipline }}</p>
         <p class="board-meta">{{ focus.kind_label }}, {{ focus.teacher }}{% if not focus.online %}, {{ focus.building }}{% endif %}</p>
-        {% if focus.day != now.date() %}<p class="board-day">{{ focus.day|human_day|capitalize }}, {{ focus.day|fdate(with_weekday=True) }}</p>{% endif %}
-        {% if focus.changed %}<p class="board-change">{{ icon('triangle-alert') }}{% if focus.status == 'room' %}Аудитория изменилась, раньше была {{ focus.old_room }}{% elif focus.status == 'moved_in' %}{{ focus.moved_text }}{% elif focus.status == 'online' %}Занятие перевели в онлайн{% elif focus.status == 'teacher' %}Ведет {{ focus.teacher }} вместо {{ focus.old_teacher }}{% endif %}</p>{% endif %}
+        {% if focus.day != now.date() %}
+          {% set hd = focus.day|human_day %}
+          <p class="board-day">{{ ((hd ~ ', ' ~ focus.day|fdate(with_weekday=True)) if hd == 'завтра' else focus.day|fdate(with_weekday=True))|capitalize }}</p>
+        {% endif %}
+        {% if focus.changed %}<p class="board-change">{{ icon('triangle-alert') }}{% if focus.status == 'room' %}Аудитория изменилась, раньше была {{ focus.old_room }}{% elif focus.status == 'moved_in' %}{{ focus.moved_text }}{% elif focus.status == 'online' %}Пару перевели в онлайн{% elif focus.status == 'teacher' %}Ведет {{ focus.teacher }} вместо {{ focus.old_teacher }}{% endif %}</p>{% endif %}
         {% if current and next %}
-          <p class="board-then">Потом: {{ next.start|hm }}, {{ next.discipline }}{% if not next.online %}, ауд. {{ next.room }}{% endif %}</p>
+          <p class="board-then">Потом: {% if next.day != now.date() %}{{ next.day|human_day }}, {% endif %}{{ next.start|hm }}, {{ next.discipline }}{% if not next.online %}, ауд. {{ next.room }}{% endif %}</p>
         {% endif %}
       {% else %}
-        <p class="board-kicker" id="board-title">Ближайших пар нет</p>
-        <p class="board-title">В ближайшие две недели занятий нет. Хорошее время для курсовой.</p>
+        <p class="board-kicker" id="board-title">Ближайших занятий нет</p>
+        <p class="board-title">В ближайшие три недели в расписании пусто. Хорошее время для курсовой.</p>
       {% endif %}
     </section>
 
@@ -44,7 +51,7 @@
       {% if lessons_today %}
         <ol class="timeline">{% for v in lessons_today %}{{ ui.lesson_row(v, now) }}{% endfor %}</ol>
       {% else %}
-        {{ ui.empty('calendar-days', 'Сегодня пар нет', 'Выходной по расписанию. Следующее занятие показано на табло выше.') }}
+        {{ ui.empty('calendar-days', 'Сегодня пар нет', (today_note ~ '. ' if today_note else '') ~ 'Ближайшее занятие показано на табло выше.') }}
       {% endif %}
     </section>
 
@@ -56,8 +63,7 @@
         <li>
           <a href="/schedule?date={{ v.day.isoformat() }}">
             <span class="ch-day">{{ v.day|human_day|capitalize }}, {{ v.start|hm }}</span>
-            <span class="ch-what"><b>{{ v.discipline }}</b>
-              {% if v.status == 'cancelled' %}отменена{% elif v.status == 'moved_away' %}{{ v.moved_text|lower }}{% elif v.status == 'moved_in' %}{{ v.moved_text|lower }}{% elif v.status == 'room' %}в ауд. {{ v.room }} вместо {{ v.old_room }}{% elif v.status == 'teacher' %}ведет {{ v.teacher }}{% elif v.status == 'online' %}пройдет онлайн{% endif %}</span>
+            <span class="ch-what"><b>{{ v.discipline }}:</b> {{ v.change_phrase }}</span>
           </a>
         </li>
         {% endfor %}
@@ -67,20 +73,25 @@
   </div>
 
   <div class="home-side">
-    <section class="section">
-      <div class="section-head"><h2>Дедлайны</h2><span class="muted small">2 недели</span></div>
+    <section class="section" id="deadlines">
+      <div class="section-head"><h2>Дедлайны</h2><span class="muted small">на 2 недели</span></div>
       {% if deadlines %}
       <ul class="deadlines">
         {% for d in deadlines %}
         {% set days = (d.due_at.date() - now.date()).days %}
-        <li class="{% if days <= 2 %}is-soon{% endif %}">
+        <li class="{% if d.done %}is-done{% elif days <= 2 %}is-soon{% endif %}">
           <span class="dl-when"><b>{{ days if days > 0 else '!' }}</b><small>{% if days <= 0 %}сегодня{% else %}{{ plural(days, 'день', 'дня', 'дней') }}{% endif %}</small></span>
-          <span class="dl-what"><b>{{ d.title }}</b><small>{{ d.source }}, до {{ d.due_at|fdt }}</small></span>
+          <span class="dl-what"><b>{{ d.title }}</b><small>{{ d.source }}, до {{ d.due_at|fdt }}{% if d.done %}, сделано{% endif %}</small></span>
+          <form method="post" action="/deadlines/{{ d.id }}/toggle" class="dl-toggle">
+            <input type="hidden" name="csrf_token" value="{{ csrf }}">
+            <button type="submit" class="check{% if d.done %} is-on{% endif %}" aria-pressed="{{ 'true' if d.done else 'false' }}"
+                    aria-label="{{ 'Вернуть в список дел' if d.done else 'Отметить как сделанное' }}: {{ d.title }}">{{ icon('check') }}</button>
+          </form>
         </li>
         {% endfor %}
       </ul>
       {% else %}
-        {{ ui.empty('circle-check', 'Дедлайнов нет', 'На ближайшие две недели все сдано.') }}
+        {{ ui.empty('circle-check', 'Дедлайнов нет', 'На ближайшие две недели сдавать ничего не нужно.') }}
       {% endif %}
     </section>
 
@@ -90,7 +101,7 @@
       <ul class="req-mini">
         {% for r in active_reqs %}
         <li><a href="/requests/{{ r.id }}">
-          <span class="rm-top"><b>{{ TYPES[r.type_code].title }}</b>{{ ui.status_chip(r.status) }}</span>
+          <span class="rm-top"><b>{{ TYPES[r.type_code].title }}</b>{{ ui.status_chip(r) }}</span>
           {{ ui.tracker(r) }}
         </a></li>
         {% endfor %}
@@ -103,14 +114,14 @@
     <section class="section">
       <div class="section-head"><h2>Как дела с учебой</h2><a class="link" href="/grades">Подробнее</a></div>
       <div class="study-sum">
-        <p class="ss-num"><b>{{ avg if avg else '-' }}</b><small>средний балл<br>за прошлые сессии</small></p>
+        <p class="ss-num"><b>{{ avg|num if avg else '-' }}</b><small>средний балл<br>за прошлые сессии</small></p>
         <p class="ss-num"><b>{{ progress|length - attention|length }}<span>/{{ progress|length }}</span></b><small>дисциплин<br>идут хорошо</small></p>
       </div>
       {% if attention %}
       <ul class="attention">
         {% for p in attention %}
         <li class="is-{{ p.state }}"><a href="/grades#d{{ p.enrollment_id }}">
-          <b>{{ p.name }}</b><span>{{ p.points|num }} баллов, {{ p.state_text|lower }}</span></a></li>
+          <b>{{ p.name }}</b><span>{{ p.points|num }} {{ plural(p.points|int, 'балл', 'балла', 'баллов') }}, {{ p.state_text|lower }}</span></a></li>
         {% endfor %}
       </ul>
       {% else %}<p class="muted small">По всем дисциплинам темп хороший.</p>{% endif %}

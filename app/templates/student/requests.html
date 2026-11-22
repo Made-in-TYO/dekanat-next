@@ -11,11 +11,12 @@
   <h2>Заказать</h2>
   <ul class="catalog">
     {% for t in catalog %}
-    <li><a href="/requests/new?type={{ t.code }}">
-      <span class="cat-ic">{{ icon('file-text' if t.kind == 'certificate' else 'send') }}</span>
-      <span class="cat-text"><b>{{ t.title }}</b><small>{% if t.days == 1 %}за 1 рабочий день{% else %}до {{ t.days }} рабочих дней{% endif %}{% if 'electronic' in t.formats %}, есть электронная{% endif %}</small></span>
-      {{ icon('chevron-right', 'ic cat-go') }}
-    </a></li>
+    {% set available = not t.budget_only or st.funding == 'Бюджет' %}
+    <li>{% if available %}<a href="/requests/new?type={{ t.code }}">{% else %}<div class="cat-off" aria-disabled="true">{% endif %}
+      <span class="cat-ic">{{ icon('file-text' if t.kind != 'application' else 'send') }}</span>
+      <span class="cat-text"><b>{{ t.title }}</b><small>{% if not available %}Только для студентов на бюджете{% else %}{% if t.days == 1 %}за 1 рабочий день{% else %}до {{ t.days }} рабочих дней{% endif %}{% if t.kind == 'certificate' and 'electronic' in t.formats %}, есть электронная{% elif t.kind == 'application' %}, заявление{% endif %}{% endif %}</small></span>
+      {% if available %}{{ icon('chevron-right', 'ic cat-go') }}</a>{% else %}</div>{% endif %}
+    </li>
     {% endfor %}
   </ul>
 </section>
@@ -26,7 +27,7 @@
   <ul class="req-list">
     {% for r in active %}
     <li><a href="/requests/{{ r.id }}">
-      <span class="rl-top"><b>{{ TYPES[r.type_code].title }}</b>{{ ui.status_chip(r.status) }}</span>
+      <span class="rl-top"><b>{{ TYPES[r.type_code].title }}</b>{{ ui.status_chip(r) }}</span>
       <small class="muted">{{ r.number }}, отправлена {{ r.created_at|ago }}</small>
       {{ ui.tracker(r) }}
     </a></li>
@@ -42,8 +43,8 @@
   <h2>Архив</h2>
   <ul class="req-list req-archive">
     {% for r in archive %}
-    <li><a href="/requests/{{ r.id }}"><span class="rl-top"><b>{{ TYPES[r.type_code].title }}</b>{{ ui.status_chip(r.status) }}</span>
-      <small class="muted">{{ r.number }}, {{ r.updated_at|ago }}</small></a></li>
+    <li><a href="/requests/{{ r.id }}"><span class="rl-top"><b>{{ TYPES[r.type_code].title }}</b>{{ ui.status_chip(r) }}</span>
+      <small class="muted">{{ r.number }}, обновлена {{ r.updated_at|ago }}</small></a></li>
     {% endfor %}
   </ul>
 </section>

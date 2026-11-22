@@ -32,10 +32,10 @@
       </a>
       {% endfor %}
       {% if not is_staff %}
-      <a href="/notifications" class="side-link{% if nav == 'notifications' %} is-active{% endif %}">
+      <a href="/notifications" class="side-link{% if nav == 'notifications' %} is-active{% endif %}"{% if nav == 'notifications' %} aria-current="page"{% endif %}>
         {{ icon('bell') }}<span>Уведомления</span>{% if unread %}<span class="count">{{ unread }}</span>{% endif %}
       </a>
-      <a href="/profile" class="side-link{% if nav == 'profile' %} is-active{% endif %}">{{ icon('user-round') }}<span>Профиль</span></a>
+      <a href="/profile" class="side-link{% if nav == 'profile' %} is-active{% endif %}"{% if nav == 'profile' %} aria-current="page"{% endif %}>{{ icon('user-round') }}<span>Профиль</span></a>
       {% endif %}
     </nav>
     <div class="side-foot">
@@ -43,6 +43,13 @@
         <span class="avatar" aria-hidden="true">{{ user.initials }}</span>
         <span class="who-text"><b>{{ user.full_name }}</b><small>{{ user.position if is_staff else user.student.group_code ~ ', ' ~ user.student.faculty_short }}</small></span>
       </div>
+      {% if user.is_demo %}
+      <form method="post" action="/demo/switch" class="demo-switch">
+        <input type="hidden" name="csrf_token" value="{{ csrf }}">
+        <input type="hidden" name="to" value="{{ 'kira' if is_staff else 'dekanat' }}">
+        <button class="side-link" type="submit">{{ icon('arrow-left-right') }}<span>{{ 'Кабинет студента (демо)' if is_staff else 'Кабинет деканата (демо)' }}</span></button>
+      </form>
+      {% endif %}
       <button class="theme-btn" type="button" data-theme-toggle aria-label="Сменить тему оформления">{{ icon('sun', 'ic ic-light') }}{{ icon('moon', 'ic ic-dark') }}<span data-theme-label>Тема: как в системе</span></button>
       <form method="post" action="/logout">
         <input type="hidden" name="csrf_token" value="{{ csrf }}">
@@ -58,6 +65,11 @@
       <span class="brand-name">Деканат Next</span>
     </a>
     <div class="topbar-actions">
+      {% if user.is_demo %}
+        <form method="post" action="/demo/switch"><input type="hidden" name="csrf_token" value="{{ csrf }}">
+          <input type="hidden" name="to" value="{{ 'kira' if is_staff else 'dekanat' }}">
+          <button class="icon-btn" type="submit" aria-label="{{ 'Перейти в кабинет студента (демо)' if is_staff else 'Перейти в кабинет деканата (демо)' }}">{{ icon('arrow-left-right') }}</button></form>
+      {% endif %}
       {% if is_staff %}
         <form method="post" action="/logout"><input type="hidden" name="csrf_token" value="{{ csrf }}">
           <button class="icon-btn" type="submit" aria-label="Выйти">{{ icon('log-out') }}</button></form>

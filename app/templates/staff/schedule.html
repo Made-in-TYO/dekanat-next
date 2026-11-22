@@ -13,33 +13,39 @@
 
 <section class="section">
   <h2>{{ d|fdate(with_weekday=True)|capitalize }}, группа {{ group }}</h2>
-  {% if lessons %}
+  {% set regular = lessons|rejectattr('is_exam')|list %}
+  {% if regular %}
   <ul class="staff-lessons">
-    {% for v in lessons %}
+    {% for v in regular %}
+    {% set has_err = errors and error_template == v.template_id %}
     <li>
       <ol class="timeline timeline-compact">{{ ui.lesson_row(v) }}</ol>
       {% if v.status != 'moved_in' %}
-      <details class="change-form">
-        <summary>{{ icon('calendar-clock') }}Изменить это занятие</summary>
-        <form method="post" action="/staff/schedule" class="form" data-submit-once data-change-form>
+      <details class="change-form"{% if has_err %} open{% endif %}>
+        <summary>{{ icon('calendar-clock') }}{{ 'Изменить еще раз или вернуть как было' if v.changed else 'Изменить это занятие' }}</summary>
+        <form method="post" action="/staff/schedule" class="form" data-submit-once data-change-form novalidate>
           <input type="hidden" name="csrf_token" value="{{ csrf }}">
           <input type="hidden" name="template_id" value="{{ v.template_id }}">
           <input type="hidden" name="day" value="{{ d.isoformat() }}">
+          {% if has_err %}<p class="alert alert-bad" role="alert">{{ icon('triangle-alert') }}<span>{{ errors.values()|first }}</span></p>{% endif %}
+          {% set ct = form.change_type if has_err else 'room' %}
           <div class="field"><label>Что меняем
             <select class="input" name="change_type" data-change-type>
-              <option value="room">Другая аудитория</option>
-              <option value="cancelled">Отмена</option>
-              <option value="moved">Перенос на другую дату</option>
-              <option value="teacher">Замена преподавателя</option>
-              <option value="online">Перевести в онлайн</option>
+              {% if v.changed %}<option value="revert">Вернуть как было</option>{% endif %}
+              {% for val, label in [('room', 'Другая аудитория'), ('cancelled', 'Отмена'), ('moved', 'Перенос на другую дату'), ('teacher', 'Замена преподавателя'), ('online', 'Перевести в онлайн')] %}
+              <option value="{{ val }}" {% if has_err and ct == val %}selected{% endif %}>{{ label }}</option>
+              {% endfor %}
             </select></label></div>
-          <div class="field" data-for="room"><label>Новая аудитория <input class="input" name="new_room" maxlength="32"></label></div>
-          <div class="field" data-for="teacher" hidden><label>Кто ведет <input class="input" name="new_teacher" maxlength="128"></label></div>
-          <div class="field-row" data-for="moved" hidden>
-            <label>Новая дата <input class="input" type="date" name="new_date" value="{{ (d + timedelta(days=1)).isoformat() }}"></label>
-            <label>Пара <select class="input" name="new_pair_no">{% for n, (a, b) in PAIRS.items() %}<option value="{{ n }}">{{ n }} ({{ a|hm }})</option>{% endfor %}</select></label>
+          <div class="field{% if has_err and errors.new_room %} has-error{% endif %}" data-for="room"><label>Новая аудитория
+            <input class="input" name="new_room" maxlength="32" value="{{ form.new_room if has_err else '' }}"{% if has_err and errors.new_room %} aria-invalid="true" autofocus{% endif %}></label></div>
+          <div class="field{% if has_err and errors.new_teacher %} has-error{% endif %}" data-for="teacher" hidden><label>Кто ведет
+            <input class="input" name="new_teacher" maxlength="128" value="{{ form.new_teacher if has_err else '' }}"{% if has_err and errors.new_teacher %} aria-invalid="true" autofocus{% endif %}></label></div>
+          <div class="field-row{% if has_err and errors.new_date %} has-error{% endif %}" data-for="moved" hidden>
+            <label>Новая дата <input class="input" type="date" name="new_date" min="{{ today.isoformat() }}"
+                   value="{{ form.new_date if has_err and form.new_date else (d + timedelta(days=1)).isoformat() }}"{% if has_err and errors.new_date %} aria-invalid="true" autofocus{% endif %}></label>
+            <label>Пара <select class="input" name="new_pair_no">{% for n, (a, b) in PAIRS.items() %}<option value="{{ n }}" {% if has_err and form.new_pair_no == n %}selected{% endif %}>{{ n }}-я, {{ a|hm }}</option>{% endfor %}</select></label>
           </div>
-          <div class="field"><label>Пояснение для студентов <input class="input" name="note" maxlength="255" placeholder="Например: преподаватель на конференции"></label></div>
+          <div class="field" data-for="any"><label>Пояснение для студентов <input class="input" name="note" maxlength="255" value="{{ form.note if has_err else '' }}" placeholder="Например: преподаватель на конференции"></label></div>
           <button class="btn btn-primary btn-sm" type="submit" data-busy-text="Сохраняем...">Сохранить и уведомить группу</button>
         </form>
       </details>
@@ -48,7 +54,7 @@
     {% endfor %}
   </ul>
   {% else %}
-    {{ ui.empty('calendar-days', 'В этот день у группы нет занятий', 'Выберите другую дату.') }}
+    {{ ui.empty('calendar-days', 'В этот день у группы нет занятий', (day_note ~ '. ' if day_note else '') ~ 'Выберите другую дату.') }}
   {% endif %}
 </section>
 {% endblock %}

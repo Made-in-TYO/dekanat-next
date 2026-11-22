@@ -9,7 +9,7 @@
 </header>
 
 <section class="req-status is-{{ r.status }}">
-  <div class="rs-top">{{ ui.status_chip(r.status) }}<span class="muted">{{ STATUS[r.status][1] }}</span></div>
+  <div class="rs-top">{{ ui.status_chip(r) }}<span class="muted">{{ status_info(r.status, r.type_code, r.fmt)[1] }}</span></div>
   {{ ui.tracker(r) }}
 
   {% if r.status == 'need_info' %}
@@ -27,8 +27,8 @@
   {% if r.status in ('ready', 'issued') %}
     {% if r.fmt == 'electronic' and t.kind == 'certificate' %}
       <a class="btn btn-primary" href="/requests/{{ r.id }}/document">{{ icon('qr-code') }}Открыть справку</a>
-    {% elif r.fmt == 'electronic' %}
-      <p class="ready-note">{{ icon('circle-check') }}<span>Заявление рассмотрено. {{ r.staff_comment or '' }}</span></p>
+    {% elif t.kind == 'application' %}
+      <p class="ready-note">{{ icon('circle-check') }}<span><b>Заявление одобрено.</b> {{ r.staff_comment or '' }}</span></p>
     {% elif r.pickup_place %}
       <p class="ready-note">{{ icon('building-2') }}<span><b>Где забрать:</b> {{ r.pickup_place }}. Возьмите студенческий билет или паспорт.</span></p>
     {% endif %}
@@ -44,14 +44,20 @@
     <h2>Детали</h2>
     <dl class="dl">
       {% if r.purpose %}<dt>{{ 'Для чего' if t.kind == 'certificate' else 'Причина' }}</dt><dd>{{ r.purpose }}</dd>{% endif %}
-      <dt>Формат</dt><dd>{{ FORMAT_LABELS[r.fmt] }}{% if r.fmt == 'paper' and r.copies > 1 %}, {{ r.copies }} экз.{% endif %}</dd>
+      {% if t.kind == 'certificate' %}<dt>Формат</dt><dd>{{ FORMAT_LABELS[r.fmt] }}{% if r.fmt == 'paper' and r.copies > 1 %}, {{ r.copies }} экз.{% endif %}</dd>{% endif %}
       {% if r.comment %}<dt>Комментарий</dt><dd>{{ r.comment }}</dd>{% endif %}
     </dl>
     {% if r.status in ('submitted', 'need_info') %}
-    <form method="post" action="/requests/{{ r.id }}/cancel" class="cancel-form">
-      <input type="hidden" name="csrf_token" value="{{ csrf }}">
-      <button class="btn btn-ghost btn-danger" type="submit">Отменить заявку</button>
-    </form>
+    <details class="confirm">
+      <summary class="btn btn-ghost btn-danger">Отменить заявку</summary>
+      <div class="confirm-box">
+        <p>Отменить заявку {{ r.number }}? Вернуть ее не получится, нужно будет подать новую.</p>
+        <form method="post" action="/requests/{{ r.id }}/cancel">
+          <input type="hidden" name="csrf_token" value="{{ csrf }}">
+          <button class="btn btn-danger-solid btn-sm" type="submit">Да, отменить</button>
+        </form>
+      </div>
+    </details>
     {% endif %}
   </section>
 
@@ -60,7 +66,7 @@
     <ol class="history">
       {% for e in r.events|reverse %}
       <li><span class="h-dot is-{{ e.status }}" aria-hidden="true"></span>
-        <div><b>{{ status_label(e.status) }}</b><small>{{ e.created_at|local|fdt }}, {{ 'деканат' if e.actor == 'staff' else 'вы' }}</small>
+        <div><b>{{ status_label(e.status, r.type_code, r.fmt) }}</b><small>{{ e.created_at|local|fdt }}, {{ 'деканат' if e.actor == 'staff' else 'вы' }}</small>
         {% if e.comment %}<p>{{ e.comment }}</p>{% endif %}</div></li>
       {% endfor %}
     </ol>

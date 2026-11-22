@@ -70,9 +70,16 @@ def test_request_validation(kira):
     token = csrf(kira, "/requests/new?type=study")
     r = kira.post("/requests", data={"type_code": "study", "purpose": "", "fmt": "electronic", "csrf_token": token})
     assert r.status_code == 400 and "Укажите" in r.text
-    r = kira.post("/requests", data={"type_code": "transcript", "purpose": "Стажировка", "fmt": "electronic",
-                                     "csrf_token": token})
+    # Для справки с несколькими форматами чужой формат отклоняется
+    r = kira.post("/requests", data={"type_code": "study", "purpose": "Банк", "fmt": "fax", "csrf_token": token})
     assert r.status_code == 400
+    # Выписка бывает только бумажной: формат из формы игнорируется, сервер ставит единственно возможный
+    r = kira.post("/requests", data={"type_code": "transcript", "purpose": "Стажировка", "fmt": "electronic",
+                                     "csrf_token": token}, follow_redirects=False)
+    assert r.status_code == 303
+    with SessionLocal() as db:
+        assert db.scalar(select(StudentRequest.fmt).where(StudentRequest.type_code == "transcript",
+                                                         StudentRequest.purpose == "Стажировка")) == "paper"
 
 
 def test_schedule_change_notifies_only_that_group(staff):
