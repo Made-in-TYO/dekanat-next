@@ -577,9 +577,9 @@ select.input { appearance: auto; }
     background-image: repeating-linear-gradient(180deg, transparent 0 63px, rgba(255,255,255,.04) 63px 64px); }
 }
 .login-board { display: grid; gap: 10px; }
-.lb-row { display: grid; grid-template-columns: 110px 1fr auto; gap: 18px; align-items: baseline; padding: 10px 0; border-bottom: 1px solid rgba(255,255,255,.08); font: 600 20px/1.2 var(--display); }
+.lb-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 18px; align-items: baseline; padding: 10px 0; border-bottom: 1px solid rgba(255,255,255,.08); font: 600 20px/1.2 var(--display); }
 .lb-row span:first-child { color: var(--amber); font-size: 30px; font-variant-numeric: tabular-nums; }
-.lb-row span:last-child { font: 500 15px var(--font); color: var(--board-muted); }
+.lb-row span:last-child { font: 500 15px var(--font); color: var(--board-muted); white-space: nowrap; }  /* «Отмена», «Онлайн» не рвутся посреди слова */
 .lb-row .lb-flag { color: #FF9AA0 !important; }
 .lb-row .lb-ok { color: #7FE0B0 !important; }
 .login-claim { max-width: 460px; font: 500 22px/1.35 var(--font); color: var(--board-muted); }
