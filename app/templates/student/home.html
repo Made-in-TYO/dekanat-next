@@ -34,6 +34,7 @@
           <p class="board-day">{{ ((hd ~ ', ' ~ focus.day|fdate(with_weekday=True)) if hd == 'завтра' else focus.day|fdate(with_weekday=True))|capitalize }}</p>
         {% endif %}
         {% if focus.changed %}<p class="board-change">{{ icon('triangle-alert') }}{% if focus.status == 'room' %}Аудитория изменилась, раньше была {{ focus.old_room }}{% elif focus.status == 'moved_in' %}{{ focus.moved_text }}{% elif focus.status == 'online' %}Пару перевели в онлайн{% elif focus.status == 'teacher' %}Ведет {{ focus.teacher }} вместо {{ focus.old_teacher }}{% endif %}</p>{% endif %}
+        {% if hints %}<ul class="board-hints">{% for h in hints %}<li>{{ icon('info') }}<span>{{ h }}</span></li>{% endfor %}</ul>{% endif %}
         {% if current and next %}
           <p class="board-then">Потом: {% if next.day != now.date() %}{{ next.day|human_day }}, {% endif %}{{ next.start|hm }}, {{ next.discipline }}{% if not next.online %}, ауд. {{ next.room }}{% endif %}</p>
         {% endif %}
@@ -79,11 +80,13 @@
       <ul class="deadlines">
         {% for d in deadlines %}
         {% set days = (d.due_at.date() - now.date()).days %}
-        <li class="{% if d.done %}is-done{% elif days <= 2 %}is-soon{% endif %}">
-          <span class="dl-when"><b>{{ days if days > 0 else '!' }}</b><small>{% if days <= 0 %}сегодня{% else %}{{ plural(days, 'день', 'дня', 'дней') }}{% endif %}</small></span>
-          <span class="dl-what"><b>{{ d.title }}</b><small>{{ d.source }}, до {{ d.due_at|fdt }}{% if d.done %}, сделано{% endif %}</small></span>
-          <form method="post" action="/deadlines/{{ d.id }}/toggle" class="dl-toggle">
+        {% set late = not d.done and d.due_at < now %}
+        <li class="{% if d.done %}is-done{% elif late %}is-late{% elif days <= 2 %}is-soon{% endif %}">
+          <span class="dl-when">{% if late %}<b>!</b><small>просрочен</small>{% else %}<b>{{ days if days > 0 else '!' }}</b><small>{% if days <= 0 %}сегодня{% else %}{{ plural(days, 'день', 'дня', 'дней') }}{% endif %}</small>{% endif %}</span>
+          <span class="dl-what"><b>{{ d.title }}</b><small>{{ d.source }}, {% if late %}{% if days < 0 %}просрочено на {{ -days }} {{ plural(-days, 'день', 'дня', 'дней') }}, срок был {{ d.due_at|fdt }}{% else %}срок истек сегодня в {{ d.due_at.strftime('%H:%M') }}{% endif %}{% else %}до {{ d.due_at|fdt }}{% endif %}{% if d.done %}, сделано{% endif %}</small></span>
+          <form method="post" action="/deadlines/{{ d.id }}/toggle" class="dl-toggle" data-submit-once>
             <input type="hidden" name="csrf_token" value="{{ csrf }}">
+            <input type="hidden" name="done" value="{{ '0' if d.done else '1' }}">
             <button type="submit" class="check{% if d.done %} is-on{% endif %}" aria-pressed="{{ 'true' if d.done else 'false' }}"
                     aria-label="{{ 'Вернуть в список дел' if d.done else 'Отметить как сделанное' }}: {{ d.title }}">{{ icon('check') }}</button>
           </form>

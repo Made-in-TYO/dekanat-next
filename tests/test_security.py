@@ -82,6 +82,17 @@ def test_forged_forwarded_header_does_not_bypass_lockout():
     assert r.status_code == 401
 
 
+def test_forwarded_header_is_ignored_for_direct_connections():
+    """Если клиент подключился напрямую (не через прокси хостинга), его X-Forwarded-For не учитывается."""
+    c = make_client()
+    for i in range(6):
+        c.post("/login", data={"login": "kira", "password": "wrong"},
+               headers={"x-test-peer": "8.8.8.8", "X-Forwarded-For": f"198.51.100.{i}"})
+    r = c.post("/login", data={"login": "kira", "password": "Kira-2026"},
+               headers={"x-test-peer": "8.8.8.8", "X-Forwarded-For": "198.51.100.99"}, follow_redirects=False)
+    assert r.status_code == 401
+
+
 def test_lockout_message_does_not_reveal_existing_logins():
     c = make_client()
     for login_ in ("kira", "no-such-user"):
@@ -138,8 +149,11 @@ def test_student_lists_show_only_own_data(kira, timur):
 
 
 def test_student_cannot_use_staff_pages(kira):
-    assert kira.get("/staff").status_code == 403
-    assert kira.get("/staff/requests").status_code == 403
+    # Открыть страницу деканата по ссылке нельзя: студента возвращает в свой кабинет
+    for path in ["/staff", "/staff/requests"]:
+        r = kira.get(path, follow_redirects=False)
+        assert r.status_code == 303 and r.headers["location"] == "/home"
+    # Изменить данные деканата нельзя: 403
     token = csrf(kira)
     rid = _request_id("СП-2026-0457")
     r = kira.post(f"/staff/requests/{rid}/status", data={"new_status": "ready", "csrf_token": token})
@@ -147,7 +161,10 @@ def test_student_cannot_use_staff_pages(kira):
 
 
 def test_staff_has_no_student_pages(staff):
-    assert staff.get("/home").status_code == 403
+    r = staff.get("/home", follow_redirects=False)
+    assert r.status_code == 303 and r.headers["location"] == "/staff"
+    token = csrf(staff, "/staff/messages/1")
+    assert staff.post("/messages", data={"body": "x", "csrf_token": token}).status_code == 403
 
 
 # ---------- Подделка запросов ----------
@@ -199,7 +216,6 @@ def test_demo_accounts_cannot_change_password(kira):
 def test_password_change_for_regular_account():
     from app.security import hash_password
     with SessionLocal() as db:
-        demo = db.scalar(select(User).where(User.login == "kira"))
         db.add(User(login="real", password_hash=hash_password("Real-2026"), role="student",
                     full_name="Обычный Студент Тестович", is_demo=False))
         db.flush()

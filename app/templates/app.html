@@ -46,7 +46,7 @@
       {% if user.is_demo %}
       <form method="post" action="/demo/switch" class="demo-switch">
         <input type="hidden" name="csrf_token" value="{{ csrf }}">
-        <input type="hidden" name="to" value="{{ 'kira' if is_staff else 'dekanat' }}">
+        <input type="hidden" name="to" value="{{ demo_back if is_staff else 'dekanat' }}">
         <button class="side-link" type="submit">{{ icon('arrow-left-right') }}<span>{{ 'Кабинет студента (демо)' if is_staff else 'Кабинет деканата (демо)' }}</span></button>
       </form>
       {% endif %}
@@ -67,10 +67,11 @@
     <div class="topbar-actions">
       {% if user.is_demo %}
         <form method="post" action="/demo/switch"><input type="hidden" name="csrf_token" value="{{ csrf }}">
-          <input type="hidden" name="to" value="{{ 'kira' if is_staff else 'dekanat' }}">
+          <input type="hidden" name="to" value="{{ demo_back if is_staff else 'dekanat' }}">
           <button class="icon-btn" type="submit" aria-label="{{ 'Перейти в кабинет студента (демо)' if is_staff else 'Перейти в кабинет деканата (демо)' }}">{{ icon('arrow-left-right') }}</button></form>
       {% endif %}
       {% if is_staff %}
+        <button class="icon-btn" type="button" data-theme-toggle aria-label="Сменить тему оформления">{{ icon('sun', 'ic ic-light') }}{{ icon('moon', 'ic ic-dark') }}</button>
         <form method="post" action="/logout"><input type="hidden" name="csrf_token" value="{{ csrf }}">
           <button class="icon-btn" type="submit" aria-label="Выйти">{{ icon('log-out') }}</button></form>
       {% else %}

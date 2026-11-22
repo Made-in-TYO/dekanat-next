@@ -19,6 +19,10 @@ DATABASE_URL = os.environ.get("DATABASE_URL", f"sqlite:///{os.path.join(DATA_DIR
 COOKIE_SECURE = os.environ.get("COOKIE_SECURE", "0") == "1"
 # Дополнительные доверенные адреса сайта для проверки Origin (через запятую), если хостинг меняет заголовок Host
 TRUSTED_HOSTS = {h.strip() for h in os.environ.get("TRUSTED_HOSTS", "").split(",") if h.strip()}
+# Сколько прокси хостинга дописывают адрес в X-Forwarded-For (адрес клиента берется на этой позиции справа)
+TRUSTED_PROXY_HOPS = max(1, int(os.environ.get("TRUSTED_PROXY_HOPS", "1")))
+# Публичный адрес сайта для ссылок в QR-кодах (например, https://dekanat.example). Если пусто, берется из запроса.
+PUBLIC_BASE_URL = os.environ.get("PUBLIC_BASE_URL", "").rstrip("/")
 SESSION_COOKIE = "dn_session"
 SESSION_TTL_HOURS = int(os.environ.get("SESSION_TTL_HOURS", "12"))
 
@@ -33,11 +37,14 @@ IP_WINDOW_MINUTES = 10
 # От начала семестра считается номер учебной недели и четность. После конца занятий идет сессия.
 SEMESTER_START = os.environ.get("SEMESTER_START", "2026-09-01")
 SEMESTER_END = os.environ.get("SEMESTER_END", "2026-12-26")
-HOLIDAYS = {"2026-11-04": "День народного единства"}
+HOLIDAYS = {"2026-11-04": "День народного единства",
+            **{f"2027-01-0{d}": "Новогодние каникулы" for d in range(1, 9)}}
 
 # Демо-режим: тестовые аккаунты общие для всех посетителей, поэтому база с демо-данными
 # пересоздается каждый день (по московскому времени), а даты в ней считаются от сегодняшнего дня.
 DEMO_DAILY_RESET = os.environ.get("DEMO_DAILY_RESET", "1") == "1"
+# После скольких минут без посетителей демо-данные сбрасываются (0 = только раз в сутки)
+DEMO_IDLE_RESET_MINUTES = int(os.environ.get("DEMO_IDLE_RESET_MINUTES", "30"))
 
 # Допустимый диапазон дат в адресах (защита от ошибок на заведомо неверных датах)
 DATE_RANGE_DAYS = 730

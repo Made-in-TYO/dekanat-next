@@ -6,10 +6,10 @@ from sqlalchemy import select
 
 import app.seed as seed_module
 from app.db import SessionLocal
-from app.models import Announcement, Deadline, LessonChange, LessonTemplate, Message, Meta, StudentRequest, User
+from app.models import Announcement, Deadline, LessonChange, LessonTemplate, Meta, StudentRequest, User
 from app.services import schedule as S
 from app.services.timeutil import today
-from conftest import csrf, login, make_client
+from conftest import csrf, make_client
 
 
 def _req(number):
@@ -228,3 +228,191 @@ def test_deadline_can_be_marked_done_only_by_owner(kira, timur):
 def test_grade_texts_use_correct_plurals(kira):
     html = kira.get("/home").text
     assert not re.search(r"\b(2[1-4]|3[1-4]|4[1-4])\s+баллов\b", html)
+
+
+# ---------- Вторая проверка ----------
+
+def test_staff_request_filters_work(staff):
+    for st in ["open", "submitted", "in_progress", "need_info", "ready", "issued", "rejected", "all", "nonsense"]:
+        assert staff.get(f"/staff/requests?status={st}").status_code == 200, st
+
+
+def test_huge_or_invalid_ids_give_404(kira, staff):
+    for path in ["/requests/99999999999999999999999", "/requests/abc", "/requests/0"]:
+        assert kira.get(path).status_code == 404, path
+    for path in ["/staff/requests/99999999999999999999999", "/staff/messages/99999999999999999999999"]:
+        assert staff.get(path).status_code == 404, path
+
+
+def test_overdue_deadline_stays_visible(kira):
+    from datetime import datetime
+    with SessionLocal() as db:
+        kira_student = db.scalar(select(User).where(User.login == "kira")).student.id
+        db.add(Deadline(student_id=kira_student, title="Просроченное эссе", source="Тест",
+                        due_at=datetime.combine(today() - timedelta(days=2), datetime.min.time())))
+        db.commit()
+    html = kira.get("/home").text
+    assert "Просроченное эссе" in html and "просрочено на 2 дня" in html
+
+
+def test_deadline_double_click_keeps_done(kira):
+    with SessionLocal() as db:
+        kira_student = db.scalar(select(User).where(User.login == "kira")).student.id
+        dl = db.scalar(select(Deadline).where(Deadline.student_id == kira_student).limit(1))
+    token = csrf(kira)
+    for _ in range(2):
+        kira.post(f"/deadlines/{dl.id}/toggle", data={"done": "1", "csrf_token": token})
+    with SessionLocal() as db:
+        assert db.get(Deadline, dl.id).done is True
+    kira.post(f"/deadlines/{dl.id}/toggle", data={"done": "0", "csrf_token": token})
+    with SessionLocal() as db:
+        assert db.get(Deadline, dl.id).done is False
+
+
+def test_demo_switch_returns_to_same_student(timur):
+    token = csrf(timur)
+    timur.post("/demo/switch", data={"to": "dekanat", "csrf_token": token})
+    html = timur.get("/staff").text
+    m = re.search(r'name="to" value="(\w+)"', html)
+    assert m and m.group(1) == "timur"
+
+
+def test_student_reply_is_visible_to_staff(timur, staff):
+    rid = _req("СП-2026-0461").id
+    token = csrf(timur, f"/requests/{rid}")
+    r = timur.post(f"/requests/{rid}/reply", data={"answer": "   ", "csrf_token": token})
+    assert r.status_code == 400 and "Напишите ответ" in r.text
+    timur.post(f"/requests/{rid}/reply", data={"answer": "Нужна на английском", "csrf_token": token})
+    assert "Ответ студента" in timur.get(f"/requests/{rid}").text
+    assert "Ответ студента" in staff.get("/staff/requests").text
+    assert "Ответ студента" in staff.get(f"/staff/requests/{rid}").text
+
+
+def test_verify_link_uses_https_behind_proxy(kira):
+    rid = _req("СП-2026-0412").id
+    html = kira.get(f"/requests/{rid}/document", headers={"X-Forwarded-Proto": "https"}).text
+    assert "https://testserver/verify/" in html
+
+
+def test_verify_code_is_case_insensitive(kira):
+    code = _req("СП-2026-0412").verify_code
+    assert kira.get(f"/verify/{code.upper()}").status_code == 200
+
+
+def test_staff_cannot_change_past_lessons(staff):
+    d = today() - timedelta(days=1)
+    for _ in range(14):
+        with SessionLocal() as db:
+            ts = S.templates_for(db, "P3214", d)
+        if ts:
+            break
+        d -= timedelta(days=1)
+    token = csrf(staff, "/staff/schedule")
+    r = staff.post("/staff/schedule", data={"template_id": ts[0].id, "day": d.isoformat(), "change_type": "cancelled",
+                                            "csrf_token": token})
+    assert r.status_code == 400 and "уже прошло" in r.text
+
+
+def test_grammar_so_sredy():
+    from app.services.timeutil import from_day
+    wed = today() + timedelta(days=(2 - today().weekday()) % 7)
+    assert from_day(wed).startswith("со среды")
+    tue = today() + timedelta(days=(1 - today().weekday()) % 7)
+    assert from_day(tue).startswith("со вторника")
+    thu = today() + timedelta(days=(3 - today().weekday()) % 7)
+    assert from_day(thu).startswith("с четверга")
+
+
+def test_null_origin_post_is_rejected():
+    r = make_client().post("/login", data={"login": "kira", "password": "Kira-2026"}, headers={"Origin": "null"})
+    assert r.status_code == 403
+
+
+def test_head_requests_for_monitoring():
+    c = make_client()
+    assert c.head("/healthz").status_code == 200
+    assert c.head("/", follow_redirects=False).status_code == 303
+
+
+def test_instant_electronic_study_certificate(kira):
+    token = csrf(kira, "/requests/new?type=study")
+    r = kira.post("/requests", data={"type_code": "study", "purpose": "Для банка", "fmt": "electronic",
+                                     "csrf_token": token}, follow_redirects=False)
+    rid = int(re.search(r"/requests/(\d+)", r.headers["location"]).group(1))
+    req = _req_by_id(rid)
+    assert req.status == "ready" and req.verify_code
+    assert kira.get(f"/requests/{rid}/document").status_code == 200
+    assert "автоматически" in kira.get(f"/requests/{rid}").text
+
+
+def test_paper_study_certificate_still_goes_to_staff(kira):
+    token = csrf(kira, "/requests/new?type=study")
+    r = kira.post("/requests", data={"type_code": "study", "purpose": "Для визы", "fmt": "paper", "copies": 2,
+                                     "csrf_token": token}, follow_redirects=False)
+    rid = int(re.search(r"/requests/(\d+)", r.headers["location"]).group(1))
+    assert _req_by_id(rid).status == "submitted"
+    assert "Готово будет примерно" in kira.get(f"/requests/{rid}").text
+
+
+def _req_by_id(rid):
+    with SessionLocal() as db:
+        return db.get(StudentRequest, rid)
+
+
+def test_ready_eta_counts_working_days():
+    from app.services.catalog import ready_eta
+    friday = date(2026, 11, 20)
+    assert ready_eta(friday, 1) == date(2026, 11, 23)       # пятница + 1 рабочий день = понедельник
+    assert ready_eta(date(2026, 11, 3), 1) == date(2026, 11, 5)  # 4 ноября праздник
+
+
+def test_board_hints():
+    from app.services.schedule import LessonView
+    import app.services.schedule as sched
+    d = today()
+    first = LessonView(day=d, pair_no=1, discipline="A", kind="lecture", room="1", building="X", teacher="t",
+                       online=False, status="cancelled")
+    second = LessonView(day=d, pair_no=2, discipline="B", kind="lecture", room="2", building="X", teacher="t",
+                        online=False)
+    third = LessonView(day=d, pair_no=5, discipline="C", kind="lecture", room="3", building="Y", teacher="t",
+                       online=False)
+    orig = sched.lessons_for_date
+    sched.lessons_for_date = lambda db, g, day: [first, second, third]
+    try:
+        hints = sched.board_hints(None, "G", None, second)
+        assert any("можно прийти к 10:00" in h for h in hints)
+        hints = sched.board_hints(None, "G", second, third)
+        assert any("окно" in h for h in hints) and any("другом корпусе" in h for h in hints)
+    finally:
+        sched.lessons_for_date = orig
+
+
+def test_idle_reset_keeps_open_sessions(kira, staff):
+    import time
+    token = csrf(staff, "/staff/announcements")
+    staff.post("/staff/announcements", data={"title": "Пока кто-то смотрел", "body": "Текст", "audience": "all",
+                                             "csrf_token": token})
+    seed_module._last_activity = time.monotonic() - 31 * 60  # полчаса без посетителей
+    html = kira.get("/home").text                              # тот же сеанс, без повторного входа
+    assert "Привет, Кира" in html
+    assert "Пока кто-то смотрел" not in kira.get("/notifications").text
+
+
+def test_seed_during_session_has_no_phantom_lessons(monkeypatch):
+    """Если демо-данные создаются в сессию, переносы на каникулы не появляются."""
+    from datetime import datetime
+    import app.seed as sd
+    monkeypatch.setattr(sd, "now_local", lambda: datetime(2026, 12, 30, 12, 0))
+    sd.init_db(reset=True)
+    with SessionLocal() as db:
+        for d in [date(2027, 1, 1), date(2027, 1, 4), date(2027, 1, 12)]:
+            for v in S.lessons_for_date(db, "U4227", d):
+                assert v.is_exam, (d, v.discipline, v.status)
+
+
+def test_one_click_jury_login():
+    c = make_client()
+    html = c.get("/login").text
+    assert html.count('action="/login"') >= 4  # основная форма и три кнопки демо-входа
+    r = c.post("/login", data={"login": "dekanat", "password": "Dekanat-2026"}, follow_redirects=False)
+    assert r.headers["location"] == "/staff"

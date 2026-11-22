@@ -18,7 +18,7 @@
   {% set form_gen = {'Очная': 'очной', 'Заочная': 'заочной', 'Очно-заочная': 'очно-заочной'} %}
   {% set fund_gen = {'Бюджет': 'бюджетной', 'Контракт': 'договорной'} %}
   {% if r.type_code == 'study' %}
-  <p>Справка подтверждает, что {{ st.user.full_name }} обучается на {{ st.course }} курсе {{ level_gen.get(st.level, st.level|lower) }}
+  <p>Справка подтверждает, что {{ st.user.full_name }} обучается на {{ st.course }}-м курсе {{ level_gen.get(st.level, st.level|lower) }}
      по {{ form_gen.get(st.study_form, st.study_form|lower) }} форме обучения на {{ fund_gen.get(st.funding, st.funding|lower) }} основе.</p>
   <p>Направление подготовки {{ st.program_code }} «{{ st.program_name }}», образовательная программа «{{ st.profile_name }}»,
      {{ st.faculty|lower }}, группа {{ st.group_code }}.</p>

@@ -10,15 +10,17 @@
 
 <section class="req-status is-{{ r.status }}">
   <div class="rs-top">{{ ui.status_chip(r) }}<span class="muted">{{ status_info(r.status, r.type_code, r.fmt)[1] }}</span></div>
+  {% if r.status in ('submitted', 'in_progress', 'need_info') %}<p class="eta">{{ icon('calendar-clock') }}<span>{{ 'Решение' if t.kind == 'application' else 'Готово будет' }} примерно {{ ready_eta(r.created_at|local, t.days)|fdate(with_weekday=True) }}</span></p>{% endif %}
   {{ ui.tracker(r) }}
 
   {% if r.status == 'need_info' %}
   <div class="ask">
     <p class="ask-q">{{ icon('message-circle') }}<span><b>Вопрос деканата:</b> {{ r.staff_comment }}</span></p>
-    <form method="post" action="/requests/{{ r.id }}/reply" class="form" data-submit-once>
+    <form method="post" action="/requests/{{ r.id }}/reply" class="form" data-submit-once novalidate>
       <input type="hidden" name="csrf_token" value="{{ csrf }}">
       <label for="answer" class="sr-only">Ваш ответ</label>
-      <textarea class="input" id="answer" name="answer" rows="3" maxlength="1000" required placeholder="Ваш ответ"></textarea>
+      {% if reply_error %}<p class="field-error" id="answer-err">{{ reply_error }}</p>{% endif %}
+      <textarea class="input" id="answer" name="answer" rows="3" maxlength="1000" required placeholder="Ваш ответ"{% if reply_error %} aria-invalid="true" aria-describedby="answer-err" autofocus{% endif %}></textarea>
       <button class="btn btn-primary" type="submit" data-busy-text="Отправляем...">Ответить</button>
     </form>
   </div>
@@ -66,7 +68,7 @@
     <ol class="history">
       {% for e in r.events|reverse %}
       <li><span class="h-dot is-{{ e.status }}" aria-hidden="true"></span>
-        <div><b>{{ status_label(e.status, r.type_code, r.fmt) }}</b><small>{{ e.created_at|local|fdt }}, {{ 'деканат' if e.actor == 'staff' else 'вы' }}</small>
+        <div><b>{{ status_label(e.status, r.type_code, r.fmt) }}</b><small>{{ e.created_at|local|fdt }}, {{ {'staff': 'деканат', 'system': 'автоматически'}.get(e.actor, 'вы') }}</small>
         {% if e.comment %}<p>{{ e.comment }}</p>{% endif %}</div></li>
       {% endfor %}
     </ol>

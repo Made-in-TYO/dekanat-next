@@ -198,6 +198,8 @@ def lessons_for_date(db: Session, group_code: str, d: date) -> list[LessonView]:
         .where(LessonTemplate.group_code == group_code, LessonChange.change_type == "moved", LessonChange.new_date == d)
     ).all()
     for c in moved_in:
+        if not is_class_day(d):
+            continue  # на неучебный день перенос не показываем (праздник, сессия, воскресенье)
         v = _view(c.template, d)
         v.pair_no = c.new_pair_no or v.pair_no
         if c.new_room:
@@ -301,3 +303,42 @@ def week_ics(db: Session, group_code: str, monday: date) -> str:
             ]
     lines.append("END:VCALENDAR")
     return "\r\n".join(_fold(x) for x in lines) + "\r\n"
+
+
+# ---------------------------- Подсказки табло ----------------------------
+
+def _dur(minutes: int) -> str:
+    h, m = divmod(minutes, 60)
+    if h and m:
+        return f"{h} ч {m} мин"
+    return f"{h} ч" if h else f"{m} мин"
+
+
+def board_hints(db: Session, group_code: str, current: "LessonView | None", nxt: "LessonView | None") -> list[str]:
+    """Человеческие подсказки к табло: когда выходить из дома, где окно, куда идти дальше."""
+    hints: list[str] = []
+    focus = current or nxt
+    if focus is None or focus.is_exam:
+        return hints
+    day = lessons_for_date(db, group_code, focus.day)
+    regular = [v for v in day if not v.is_exam]
+    happening = [v for v in regular if v.happens]
+    # Первая пара дня отменена или перенесена: можно прийти позже
+    if not current and happening and focus is not None and happening[0].start == focus.start:
+        dropped = [v for v in regular if not v.happens and v.start < focus.start]
+        if dropped:
+            hints.append(f"Первая пара отменена или перенесена: можно прийти к {focus.start:%H:%M}")
+    # Все пары дня онлайн
+    if happening and all(v.online for v in happening):
+        hints.append("В этот день все пары онлайн, ехать в университет не нужно")
+    if current:
+        later = [v for v in happening if v.start >= current.end]
+        if not later:
+            hints.append("Это последняя пара сегодня")
+        elif nxt is not None and nxt.day == current.day:
+            gap = int((nxt.start_dt - current.end_dt).total_seconds() // 60)
+            if gap >= 60:
+                hints.append(f"После этой пары окно {_dur(gap)}")
+            if not nxt.online and not current.online and nxt.building != current.building:
+                hints.append(f"Следующая пара в другом корпусе: {nxt.building}")
+    return hints

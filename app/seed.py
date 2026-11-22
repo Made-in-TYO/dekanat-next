@@ -41,6 +41,13 @@ def _to_utc(local_dt: datetime) -> datetime:
 def seed(db) -> None:
     now = now_local()
     today = now.date()
+    # Опорное время для событий в демо-данных: внутри рабочего дня деканата, а не ночью
+    if 10 <= now.hour < 18:
+        ref = now
+    elif now.hour >= 18:
+        ref = now.replace(hour=17, minute=40, second=0, microsecond=0)
+    else:
+        ref = (now - timedelta(days=1)).replace(hour=17, minute=40, second=0, microsecond=0)
     base = today if today.weekday() < 5 else today + timedelta(days=7 - today.weekday())
     mon = week_monday(base)
 
@@ -151,7 +158,15 @@ def seed(db) -> None:
                      new_date=mon + timedelta(days=5), new_pair_no=3, new_room="2209",
                      note="Перенос из-за праздничного концерта в актовом зале"),
     ]
-    db.add_all(changes)
+    # Оставляем только изменения, которые попадают на учебные дни и на реально стоящие в этот день пары
+    # (например, если демо-данные создаются во время сессии, переносов не будет).
+    from .services import schedule as S
+    valid = []
+    for c in changes:
+        day_ids = {t.id for t in S.templates_for(db, db.get(LessonTemplate, c.template_id).group_code, c.date)}
+        if c.template_id in day_ids and (c.new_date is None or S.is_class_day(c.new_date)):
+            valid.append(c)
+    db.add_all(valid)
 
     # ---------------- Баллы текущего семестра ----------------
     def enroll(student, d, items, final=None):
@@ -276,19 +291,19 @@ def seed(db) -> None:
         Announcement(title="Опубликовано расписание зимней сессии",
                      body="Даты консультаций и экзаменов уже в разделе Учеба, вкладка Сессия. "
                           "Если экзамены совпадают по времени, напишите в деканат до 15 декабря.",
-                     audience="all", author_id=staff.id, created_at=_to_utc(now - timedelta(days=2, hours=4))),
+                     audience="all", author_id=staff.id, created_at=_to_utc(ref - timedelta(days=2, hours=4))),
         Announcement(title="Продление студенческих билетов на весенний семестр",
                      body="Наклейки на студенческие билеты выдаем с 1 по 26 декабря в деканате. Возьмите с собой билет.",
-                     audience="all", author_id=staff.id, created_at=_to_utc(now - timedelta(days=5))),
+                     audience="all", author_id=staff.id, created_at=_to_utc(ref - timedelta(days=5))),
         Announcement(title="Встреча с научными руководителями",
                      body="В четверг в 18:40 в ауд. 1216 обсуждаем темы ВКР. Можно подключиться онлайн, ссылка в курсе.",
-                     audience="group:U4227", author_id=staff.id, created_at=_to_utc(now - timedelta(days=1, hours=2))),
+                     audience="group:U4227", author_id=staff.id, created_at=_to_utc(ref - timedelta(days=1, hours=2))),
     ]
     db.add_all(ann)
 
     # ---------------- Уведомления ----------------
     def n(user, kind, title, body, link, hours_ago, read=False):
-        created = _to_utc(now - timedelta(hours=hours_ago))
+        created = _to_utc(ref - timedelta(hours=hours_ago))
         db.add(Notification(user_id=user.id, kind=kind, title=title, body=body, link=link, created_at=created,
                             read_at=created if read else None))
 
@@ -306,7 +321,7 @@ def seed(db) -> None:
     for a in ann:
         for u, st in ((u_kira, kira), (u_timur, timur)):
             if a.audience == "all" or a.audience == f"group:{st.group_code}":
-                hours = (now - (a.created_at + timedelta(hours=3))).total_seconds() / 3600
+                hours = (ref - (a.created_at + timedelta(hours=3))).total_seconds() / 3600
                 n(u, "news", a.title, a.body[:200], "/notifications?kind=news", hours, read=hours > 48)
     db.flush()
     # ссылка на заявку Тимура
@@ -318,15 +333,15 @@ def seed(db) -> None:
     db.add_all([
         Message(student_id=kira.id, author_id=u_kira.id, from_staff=False, read_by_student=True, read_by_staff=True,
                 body="Здравствуйте! Можно ли перезачесть английский из бакалавриата?",
-                created_at=_to_utc(now - timedelta(hours=34))),
+                created_at=_to_utc(ref - timedelta(hours=26))),
         Message(student_id=kira.id, author_id=staff.id, from_staff=True, read_by_student=True, read_by_staff=True,
                 body="Здравствуйте, Кира! В магистратуре перезачет возможен, если совпадает объем часов. "
                      "Напишите сюда, в каком году и с каким количеством часов сдавали английский, мы сверим "
                      "с учебным планом и ответим за 5 рабочих дней.",
-                created_at=_to_utc(now - timedelta(hours=30))),
+                created_at=_to_utc(ref - timedelta(hours=24, minutes=30))),
         Message(student_id=timur.id, author_id=u_timur.id, from_staff=False, read_by_student=True, read_by_staff=False,
                 body="Добрый день! Я потерял студенческий, заявку на дубликат отправил. Нужно ли что-то еще?",
-                created_at=_to_utc(now - timedelta(hours=1))),
+                created_at=_to_utc(ref - timedelta(hours=1))),
     ])
     db.commit()
 
@@ -344,32 +359,57 @@ def init_db(reset: bool = False) -> None:
 
 _fresh_lock = threading.Lock()
 _checked_on: str | None = None
+_last_activity: float | None = None
+
+
+def reset_demo_keep_sessions() -> None:
+    """Пересоздает демо-данные, но сохраняет открытые сеансы: тот, кто сейчас в кабинете, не вылетит."""
+    from .models import AuthSession
+    with SessionLocal() as db:
+        saved = [(s.token_hash, s.csrf_token, s.user.login, s.created_at, s.expires_at)
+                 for s in db.scalars(select(AuthSession))]
+    init_db(reset=True)
+    with SessionLocal() as db:
+        ids = {u.login: u.id for u in db.scalars(select(User))}
+        for token_hash, csrf, login, created, expires in saved:
+            if login in ids:
+                db.add(AuthSession(token_hash=token_hash, csrf_token=csrf, user_id=ids[login],
+                                   created_at=created, expires_at=expires))
+        db.commit()
+    from .security import reset_login_limits
+    reset_login_limits()
 
 
 def ensure_demo_fresh() -> bool:
-    """Пересоздает демо-базу, если она создана не сегодня (по Москве).
-    Так даты в расписании, дедлайнах и заявках всегда актуальны, а все, что посетители
-    поменяли в общих демо-аккаунтах, исчезает на следующий день. Возвращает True, если был сброс."""
-    global _checked_on
+    """Держит демо-данные свежими для общих тестовых аккаунтов. База пересоздается:
+    - раз в сутки (по Москве): даты в расписании, дедлайнах и заявках всегда актуальны;
+    - после DEMO_IDLE_RESET_MINUTES минут тишины: следующий член жюри приходит на чистый кабинет,
+      не видя изменений предыдущего, а тот, кто работает прямо сейчас, ничего не теряет.
+    Возвращает True, если был сброс."""
+    global _checked_on, _last_activity
     from . import config
+    if not config.DEMO_DAILY_RESET:
+        return False
+    import time as _time
+    now = _time.monotonic()
     today = now_local().date().isoformat()
-    if not config.DEMO_DAILY_RESET or _checked_on == today:
+    idle = (_last_activity is not None and config.DEMO_IDLE_RESET_MINUTES > 0
+            and now - _last_activity > config.DEMO_IDLE_RESET_MINUTES * 60)
+    _last_activity = now
+    if _checked_on == today and not idle:
         return False
     with _fresh_lock:
-        if _checked_on == today:
-            return False
         with SessionLocal() as db:
             try:
                 seeded = db.get(Meta, "seeded_on")
             except Exception:
                 seeded = None
-            fresh = seeded is not None and seeded.value == today
-        if not fresh:
-            init_db(reset=True)
-            from .security import reset_login_limits
-            reset_login_limits()
+            stale_day = seeded is None or seeded.value != today
+        reset = stale_day or idle
+        if reset:
+            reset_demo_keep_sessions()
         _checked_on = today
-        return not fresh
+        return reset
 
 
 if __name__ == "__main__":

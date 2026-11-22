@@ -14,19 +14,34 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from fastapi.testclient import TestClient  # noqa: E402
 
 from app.main import app  # noqa: E402
-from app.security import reset_ip_limits  # noqa: E402
+from app.security import reset_login_limits  # noqa: E402
 from app.seed import init_db  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
 def fresh_db():
     init_db(reset=True)
-    reset_ip_limits()
+    reset_login_limits()
     yield
 
 
+class PeerApp:
+    """Имитирует прокси хостинга: запрос приходит с внутреннего адреса 10.0.0.1.
+    Заголовок x-test-peer позволяет изобразить прямое подключение с внешнего адреса."""
+
+    def __init__(self, inner):
+        self.inner = inner
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] == "http":
+            headers = dict(scope.get("headers") or [])
+            peer = headers.get(b"x-test-peer", b"10.0.0.1").decode()
+            scope = dict(scope, client=(peer, 1234))
+        await self.inner(scope, receive, send)
+
+
 def make_client() -> TestClient:
-    return TestClient(app, base_url="http://testserver")
+    return TestClient(PeerApp(app), base_url="http://testserver")
 
 
 def login(login_: str, password: str) -> TestClient:

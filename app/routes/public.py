@@ -16,7 +16,7 @@ router = APIRouter()
 STATIC = os.path.join(os.path.dirname(os.path.dirname(__file__)), "static")
 
 
-@router.get("/")
+@router.api_route("/", methods=["GET", "HEAD"])
 def root(request: Request, db: Session = Depends(get_db)):
     s = get_session(db, request)
     if s is None:
@@ -38,6 +38,7 @@ def _mask_name(full_name: str) -> str:
 @router.get("/verify/{code}")
 def verify(request: Request, code: str, db: Session = Depends(get_db)):
     r = None
+    code = code.strip().lower()
     if code.isalnum() and len(code) <= 32:
         r = db.scalar(select(StudentRequest).options(selectinload(StudentRequest.student).selectinload(Student.user))
                       .where(StudentRequest.verify_code == code))
@@ -73,6 +74,6 @@ def offline(request: Request):
     return render(request, "offline.html", {})
 
 
-@router.get("/healthz")
+@router.api_route("/healthz", methods=["GET", "HEAD"])
 def healthz():
     return JSONResponse({"status": "ok"})

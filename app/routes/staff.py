@@ -1,6 +1,6 @@
 """Кабинет сотрудника деканата: заявки, вопросы студентов, объявления, изменения расписания."""
 import secrets
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import RedirectResponse
@@ -9,11 +9,12 @@ from sqlalchemy.orm import Session, selectinload
 
 from .. import config
 from ..db import get_db
+from .common import IdPath
 from ..models import (Announcement, AuthSession, LessonChange, LessonTemplate, Message, RequestEvent, Student,
                       StudentRequest)
 from ..security import check_csrf, require_staff
 from ..services import schedule as S
-from ..services.catalog import DEKANAT_PLACE, TYPES, is_final_ready, staff_transitions, status_info
+from ..services.catalog import DEKANAT_PLACE, STATUS, TYPES, staff_transitions, status_info
 from ..services.notify import notify, notify_group
 from ..services.timeutil import fmt_date, from_day, on_day, today, utcnow
 from ..web import render
@@ -36,7 +37,8 @@ def _unanswered(db: Session) -> int:
 @router.get("")
 def dashboard(request: Request, s: AuthSession = Depends(require_staff), db: Session = Depends(get_db)):
     counts = dict(db.execute(select(StudentRequest.status, func.count()).group_by(StudentRequest.status)).all())
-    fresh = db.scalars(select(StudentRequest).options(selectinload(StudentRequest.student).selectinload(Student.user))
+    fresh = db.scalars(select(StudentRequest).options(selectinload(StudentRequest.student).selectinload(Student.user),
+                                                      selectinload(StudentRequest.events))
                        .where(StudentRequest.status.in_(["submitted", "need_info", "in_progress"]))
                        .order_by(StudentRequest.created_at).limit(6)).all()
     return render(request, "staff/dashboard.html", {"nav": "dash", "counts": counts, "fresh": fresh,
@@ -46,7 +48,8 @@ def dashboard(request: Request, s: AuthSession = Depends(require_staff), db: Ses
 @router.get("/requests")
 def requests_list(request: Request, status: str = "open", s: AuthSession = Depends(require_staff),
                   db: Session = Depends(get_db)):
-    q = select(StudentRequest).options(selectinload(StudentRequest.student).selectinload(Student.user))
+    q = select(StudentRequest).options(selectinload(StudentRequest.student).selectinload(Student.user),
+                                       selectinload(StudentRequest.events))
     if status == "open":
         q = q.where(StudentRequest.status.in_(["submitted", "in_progress", "need_info"]))
     elif status in STATUS:
@@ -68,7 +71,7 @@ def _get_request(db: Session, rid: int) -> StudentRequest:
 
 
 @router.get("/requests/{rid}")
-def request_detail(request: Request, rid: int, s: AuthSession = Depends(require_staff), db: Session = Depends(get_db)):
+def request_detail(request: Request, rid: IdPath, s: AuthSession = Depends(require_staff), db: Session = Depends(get_db)):
     r = _get_request(db, rid)
     return render(request, "staff/request_detail.html", {
         "nav": "requests", "r": r, "t": TYPES[r.type_code], "transitions": staff_transitions(r),
@@ -76,7 +79,7 @@ def request_detail(request: Request, rid: int, s: AuthSession = Depends(require_
 
 
 @router.post("/requests/{rid}/status")
-def request_status(request: Request, rid: int, new_status: str = Form(...), comment: str = Form(""),
+def request_status(request: Request, rid: IdPath, new_status: str = Form(...), comment: str = Form(""),
                    csrf_token: str = Form(""), s: AuthSession = Depends(require_staff), db: Session = Depends(get_db)):
     check_csrf(s, csrf_token)
     r = _get_request(db, rid)
@@ -109,11 +112,12 @@ def request_status(request: Request, rid: int, new_status: str = Form(...), comm
             "rejected": f"{t.title}: в заявлении отказано",
         }
     else:
+        low = t.title[:1].lower() + t.title[1:]
         titles = {
-            "in_progress": f"{t.title}: заявка в работе",
+            "in_progress": f"В работе: {low}",
             "need_info": f"Нужно уточнение по заявке {r.number}",
-            "ready": f"{t.title}: {'можно забрать' if r.fmt == 'paper' else 'готово'}",
-            "issued": f"{t.title}: выдано",
+            "ready": f"{'Можно забрать' if r.fmt == 'paper' else 'Готово'}: {low}",
+            "issued": f"Выдано: {low}",
             "rejected": f"Заявка {r.number} отклонена",
         }
     body = comment or status_info(new_status, r.type_code, r.fmt)[1]
@@ -142,7 +146,7 @@ def threads(request: Request, s: AuthSession = Depends(require_staff), db: Sessi
 
 
 @router.get("/messages/{student_id}")
-def thread(request: Request, student_id: int, s: AuthSession = Depends(require_staff), db: Session = Depends(get_db)):
+def thread(request: Request, student_id: IdPath, s: AuthSession = Depends(require_staff), db: Session = Depends(get_db)):
     st = db.scalar(select(Student).options(selectinload(Student.user)).where(Student.id == student_id))
     if st is None:
         raise HTTPException(status_code=404)
@@ -157,7 +161,7 @@ def thread(request: Request, student_id: int, s: AuthSession = Depends(require_s
 
 
 @router.post("/messages/{student_id}")
-def thread_reply(request: Request, student_id: int, body: str = Form(""), csrf_token: str = Form(""),
+def thread_reply(request: Request, student_id: IdPath, body: str = Form(""), csrf_token: str = Form(""),
                  s: AuthSession = Depends(require_staff), db: Session = Depends(get_db)):
     check_csrf(s, csrf_token)
     st = db.get(Student, student_id)
@@ -249,6 +253,10 @@ def schedule_change(request: Request, template_id: int = Form(...), day: str = F
     existing = db.scalar(select(LessonChange).where(LessonChange.template_id == t.id, LessonChange.date == d))
     name = t.discipline.name
     when = _when(d, t.pair_no)
+    if d < today():
+        ctx = _schedule_ctx(db, t.group_code, d, errors={"day": "Это занятие уже прошло, менять его нельзя"},
+                            error_template=t.id, form={"change_type": change_type})
+        return render(request, "staff/schedule.html", ctx, status_code=400, db=db)
 
     if change_type == "revert":
         # "Вернуть как было": удаляем изменение и сообщаем группе
@@ -256,7 +264,7 @@ def schedule_change(request: Request, template_id: int = Form(...), day: str = F
             return RedirectResponse(f"/staff/schedule?group={t.group_code}&date={d.isoformat()}", status_code=303)
         db.delete(existing)
         notify_group(db, t.group_code, "schedule", f"Как было: {name}",
-                     f"{when}: пара проходит по обычному расписанию, предыдущее изменение отменено.",
+                     f"{when[:1].upper() + when[1:]}: пара проходит по обычному расписанию, предыдущее изменение отменено.",
                      f"/schedule?date={d.isoformat()}")
         db.commit()
         return RedirectResponse(f"/staff/schedule?group={t.group_code}&date={d.isoformat()}&ok=reverted", status_code=303)
@@ -316,6 +324,7 @@ def schedule_change(request: Request, template_id: int = Form(...), day: str = F
                 f"{on_day(c.new_date)}, {S.pair_name(c.new_pair_no)}.")
     if c.note:
         body += f" {c.note}"
+    body = body[:1].upper() + body[1:]
     notify_group(db, t.group_code, "schedule", title, body, f"/schedule?date={d.isoformat()}")
     db.commit()
     return RedirectResponse(f"/staff/schedule?group={t.group_code}&date={d.isoformat()}&ok=change", status_code=303)

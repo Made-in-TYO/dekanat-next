@@ -40,16 +40,18 @@
       <button class="btn btn-primary btn-block" type="submit" data-busy-text="Входим...">Войти</button>
     </form>
 
-    <details class="demo">
-      <summary>Тестовые аккаунты для жюри</summary>
-      <p class="muted small">Нажмите на аккаунт, чтобы подставить логин и пароль. Это демо-доступ к вымышленным данным.</p>
-      <ul class="demo-list">
+    <section class="demo" aria-labelledby="demo-title">
+      <h2 id="demo-title">Вход для жюри в один клик</h2>
+      <p class="muted small">Общие тестовые аккаунты с вымышленными данными. Демо-данные сами обновляются, поэтому ничего не сломать.</p>
+      <div class="demo-list">
         {% for lg, pw, role in demo %}
-        <li><button type="button" class="demo-acc" data-fill-login="{{ lg }}" data-fill-password="{{ pw }}">
-          <b>{{ role }}</b><span>{{ lg }} / {{ pw }}</span></button></li>
+        <form method="post" action="/login">
+          <input type="hidden" name="login" value="{{ lg }}"><input type="hidden" name="password" value="{{ pw }}">
+          <button type="submit" class="demo-acc"><b>{{ role }}</b><span>{{ lg }} / {{ pw }}</span></button>
+        </form>
         {% endfor %}
-      </ul>
-    </details>
+      </div>
+    </section>
   </section>
 </main>
 {% endblock %}

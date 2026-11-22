@@ -1,7 +1,7 @@
 """Кабинет студента. Каждый запрос к данным фильтруется по текущему студенту из серверной сессии:
 идентификатор студента никогда не берется из адреса или формы."""
 import secrets
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import RedirectResponse, Response
@@ -9,13 +9,14 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from ..db import get_db
+from .common import IdPath
 from ..models import (Announcement, AuthSession, Deadline, Enrollment, ExamEvent, Message, Notification, PastResult,
                       RequestEvent, StudentRequest)
-from ..security import check_csrf, destroy_other_sessions, hash_password, require_student, verify_password
+from ..security import (check_csrf, destroy_other_sessions, hash_password, public_base_url, require_student,
+                        verify_password)
 from ..services import grades as G
 from ..services import schedule as S
-from ..services.catalog import REQUEST_TYPES, TYPES, is_active
-from ..services.notify import notify
+from ..services.catalog import REQUEST_TYPES, TYPES, is_active, is_instant
 from ..services.timeutil import (WEEKDAYS, WEEKDAYS_SHORT, now_local, semester_week, today, utcnow,
                                  week_monday, week_parity)
 from .. import config
@@ -70,9 +71,14 @@ def home(request: Request, s: AuthSession = Depends(require_student), db: Sessio
     current, nxt = S.current_and_next(db, st.group_code)
     lessons_today = S.lessons_for_date(db, st.group_code, now.date())
     changes = S.upcoming_changes(db, st.group_code, days=7)
-    deadlines = db.scalars(select(Deadline).where(Deadline.student_id == st.id,
-                                                  Deadline.due_at >= now, Deadline.due_at <= now + timedelta(days=14))
-                           .order_by(Deadline.done, Deadline.due_at)).all()
+    upcoming = db.scalars(select(Deadline).where(Deadline.student_id == st.id,
+                                                 Deadline.due_at >= now, Deadline.due_at <= now + timedelta(days=14))
+                          .order_by(Deadline.done, Deadline.due_at)).all()
+    # Просроченные и не сделанные не пропадают, а стоят первыми с пометкой "просрочено"
+    overdue = db.scalars(select(Deadline).where(Deadline.student_id == st.id, Deadline.done.is_(False),
+                                                Deadline.due_at < now, Deadline.due_at >= now - timedelta(days=30))
+                         .order_by(Deadline.due_at)).all()
+    deadlines = list(overdue) + [d for d in upcoming if not d.done] + [d for d in upcoming if d.done]
     all_reqs = db.scalars(select(StudentRequest).where(StudentRequest.student_id == st.id)
                           .order_by(StudentRequest.updated_at.desc())).all()
     active_reqs = [r for r in all_reqs if is_active(r)][:3]
@@ -87,7 +93,7 @@ def home(request: Request, s: AuthSession = Depends(require_student), db: Sessio
         "nav": "home", "st": st, "now": now, "current": current, "next": nxt, "lessons_today": lessons_today,
         "changes": changes, "deadlines": deadlines, "active_reqs": active_reqs, "progress": progress,
         "attention": attention, "avg": G.average_five(past), "unread_msgs": unread_msgs,
-        "today_note": S.day_note(now.date()),
+        "today_note": S.day_note(now.date()), "hints": S.board_hints(db, st.group_code, current, nxt),
         "news": _announcements_for(db, st.group_code, 2),
     }, db=db)
 
@@ -204,19 +210,28 @@ def request_create(request: Request, type_code: str = Form(...), purpose: str = 
     db.flush()
     r.number = _number_for(r.id)
     db.add(RequestEvent(request_id=r.id, status="submitted", actor="student", comment=comment or None))
+    if is_instant(t.code, fmt):
+        # Электронная справка об обучении собирается из данных учетной системы сразу, без очереди
+        r.status = "ready"
+        r.issued_at = utcnow()
+        r.verify_code = secrets.token_hex(8)
+        db.add(RequestEvent(request_id=r.id, status="ready", actor="system",
+                            comment="Справка сформирована автоматически по данным учетной системы и подписана электронной подписью"))
+        db.commit()
+        return RedirectResponse(f"/requests/{r.id}?ok=instant", status_code=303)
     db.commit()
     return RedirectResponse(f"/requests/{r.id}?ok=created", status_code=303)
 
 
 @router.get("/requests/{request_id}")
-def request_detail(request: Request, request_id: int, s: AuthSession = Depends(require_student),
+def request_detail(request: Request, request_id: IdPath, s: AuthSession = Depends(require_student),
                    db: Session = Depends(get_db)):
     r = _own_request(db, s, request_id)
     return render(request, "student/request_detail.html", {"nav": "requests", "r": r, "t": TYPES[r.type_code]}, db=db)
 
 
 @router.post("/requests/{request_id}/cancel")
-def request_cancel(request: Request, request_id: int, csrf_token: str = Form(""),
+def request_cancel(request: Request, request_id: IdPath, csrf_token: str = Form(""),
                    s: AuthSession = Depends(require_student), db: Session = Depends(get_db)):
     check_csrf(s, csrf_token)
     r = _own_request(db, s, request_id)
@@ -230,28 +245,33 @@ def request_cancel(request: Request, request_id: int, csrf_token: str = Form("")
 
 
 @router.post("/requests/{request_id}/reply")
-def request_reply(request: Request, request_id: int, answer: str = Form(""), csrf_token: str = Form(""),
+def request_reply(request: Request, request_id: IdPath, answer: str = Form(""), csrf_token: str = Form(""),
                   s: AuthSession = Depends(require_student), db: Session = Depends(get_db)):
     check_csrf(s, csrf_token)
     r = _own_request(db, s, request_id)
     answer = answer.strip()[:1000]
-    if r.status != "need_info" or not answer:
+    if r.status != "need_info":
         raise HTTPException(status_code=409)
+    if not answer:
+        return render(request, "student/request_detail.html", {"nav": "requests", "r": r, "t": TYPES[r.type_code],
+                                                               "reply_error": "Напишите ответ на вопрос деканата"},
+                      status_code=400, db=db)
     r.status = "in_progress"
     r.updated_at = utcnow()
-    db.add(RequestEvent(request_id=r.id, status="in_progress", actor="student", comment=answer))
+    # Отдельное событие "ответ студента": деканат видит его в очереди и в истории заявки
+    db.add(RequestEvent(request_id=r.id, status="reply", actor="student", comment=answer))
     db.commit()
     return RedirectResponse(f"/requests/{r.id}?ok=replied", status_code=303)
 
 
 @router.get("/requests/{request_id}/document")
-def request_document(request: Request, request_id: int, s: AuthSession = Depends(require_student),
+def request_document(request: Request, request_id: IdPath, s: AuthSession = Depends(require_student),
                      db: Session = Depends(get_db)):
     r = _own_request(db, s, request_id)
     if r.fmt != "electronic" or r.status not in ("ready", "issued") or not r.verify_code or TYPES[r.type_code].kind != "certificate":
         raise HTTPException(status_code=404)
     from ..services.qr import qr_svg
-    verify_url = str(request.base_url).rstrip("/") + f"/verify/{r.verify_code}"
+    verify_url = public_base_url(request) + f"/verify/{r.verify_code}"
     return render(request, "student/document.html", {"nav": "requests", "r": r, "t": TYPES[r.type_code],
                                                      "st": _student(s), "qr": qr_svg(verify_url),
                                                      "verify_url": verify_url}, db=db)
@@ -260,13 +280,14 @@ def request_document(request: Request, request_id: int, s: AuthSession = Depends
 # ---------------------------- Дедлайны ----------------------------
 
 @router.post("/deadlines/{deadline_id}/toggle")
-def deadline_toggle(request: Request, deadline_id: int, csrf_token: str = Form(""),
+def deadline_toggle(request: Request, deadline_id: IdPath, done: str = Form("1"), csrf_token: str = Form(""),
                     s: AuthSession = Depends(require_student), db: Session = Depends(get_db)):
+    """Ставит явное состояние (done=1 или 0), а не переключает: двойной клик не отменяет отметку."""
     check_csrf(s, csrf_token)
     d = db.scalar(select(Deadline).where(Deadline.id == deadline_id, Deadline.student_id == _student(s).id))
     if d is None:
         raise HTTPException(status_code=404)
-    d.done = not d.done
+    d.done = done == "1"
     db.commit()
     return RedirectResponse("/home#deadlines", status_code=303)
 
@@ -296,7 +317,7 @@ def notifications_read_all(request: Request, csrf_token: str = Form(""), s: Auth
 
 
 @router.post("/notifications/{notif_id}/open")
-def notification_open(request: Request, notif_id: int, csrf_token: str = Form(""),
+def notification_open(request: Request, notif_id: IdPath, csrf_token: str = Form(""),
                       s: AuthSession = Depends(require_student), db: Session = Depends(get_db)):
     check_csrf(s, csrf_token)
     n = db.scalar(select(Notification).where(Notification.id == notif_id, Notification.user_id == s.user_id))

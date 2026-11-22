@@ -21,8 +21,8 @@
     <p class="lesson-meta">
       {% if not v.is_exam %}<span>{{ v.kind_label }}</span>{% endif %}
       {% if v.online %}<span>{{ icon('video') }}<span>Онлайн</span></span>
-      {% else %}<span>{{ icon('map-pin') }}<span>ауд. {% if v.old_room %}<s>{{ v.old_room }}</s> {% endif %}<b>{{ v.room }}</b>{% if not compact %}, {{ v.building }}{% endif %}</span></span>{% endif %}
-      <span>{{ icon('user-round') }}<span>{% if v.old_teacher %}<s>{{ v.old_teacher }}</s> {% endif %}{{ v.teacher }}</span></span>
+      {% else %}<span>{{ icon('map-pin') }}<span>ауд. {% if v.old_room %}<s>{{ v.old_room }}</s><span class="sr-only"> заменена на</span> {% endif %}<b>{{ v.room }}</b>{% if not compact %}, {{ v.building }}{% endif %}</span></span>{% endif %}
+      <span>{{ icon('user-round') }}<span>{% if v.old_teacher %}<s>{{ v.old_teacher }}</s><span class="sr-only"> заменен на</span> {% endif %}{{ v.teacher }}</span></span>
     </p>
     {% if v.moved_text or v.note %}<p class="lesson-note">{% if v.moved_text %}{{ v.moved_text }}. {% endif %}{{ v.note or '' }}</p>{% endif %}
   </div>
@@ -44,6 +44,8 @@
   {% for label in track_labels(r.type_code) %}
   <li class="{% if loop.index0 < pos or (loop.index0 == pos and r.status in ('ready', 'issued')) %}is-done{% elif loop.index0 == pos %}is-current{% endif %}{% if loop.index0 == 1 and r.status == 'need_info' %} is-attention{% endif %}">
     <span class="track-dot" aria-hidden="true"></span>
+    {% set done = loop.index0 < pos or (loop.index0 == pos and r.status in ('ready', 'issued')) %}
+    <span class="sr-only">{{ 'Выполнено: ' if done else ('Сейчас: ' if loop.index0 == pos else 'Впереди: ') }}</span>
     <span class="track-label">{% if loop.index0 == 1 and r.status == 'need_info' %}Нужно уточнение{% else %}{{ label }}{% endif %}</span>
   </li>
   {% endfor %}

@@ -24,7 +24,7 @@ class RequestType:
 REQUEST_TYPES = [
     RequestType("study", "Справка об обучении", "certificate",
                 "Подтверждает, что вы учитесь в вузе. Нужна для работы, банка, визы, пенсионного фонда.",
-                1, ("electronic", "paper"), True, "Например: по месту работы родителей"),
+                1, ("electronic", "paper"), True, "Например: для банка"),
     RequestType("stipend", "Справка о получении стипендии", "certificate",
                 "Подтверждает, что вам начисляется государственная академическая стипендия, с суммами за последние 6 месяцев.",
                 2, ("electronic", "paper"), True, "Например: для оформления субсидии", budget_only=True),
@@ -54,6 +54,7 @@ STATUS = {
     "issued": ("Выдана", "Документ получен"),
     "rejected": ("Отклонена", "Причина указана в заявке"),
     "cancelled": ("Отменена", "Вы отменили заявку"),
+    "reply": ("Ответ студента", "Студент ответил на вопрос деканата"),
 }
 STATUS_APPLICATION = {
     "in_progress": ("На рассмотрении", "Деканат рассматривает заявление"),
@@ -112,5 +113,28 @@ def staff_transitions(r) -> list[str]:
 
 def track_labels(type_code: str) -> list[str]:
     if kind_of(type_code) == "application":
-        return ["Отправлено", "На рассмотрении", "Решение"]
+        return ["Отправлена", "На рассмотрении", "Решение"]
     return ["Отправлена", "В работе", "Готова"]
+
+
+# Справка об обучении в электронном виде выдается сразу: все данные для нее уже есть в учетной системе
+INSTANT_TYPES = {"study"}
+
+
+def is_instant(type_code: str, fmt: str) -> bool:
+    return type_code in INSTANT_TYPES and fmt == "electronic"
+
+
+def ready_eta(created_local, days: int):
+    """Примерная дата готовности: через N рабочих дней (без выходных и праздников из учебного календаря)."""
+    from datetime import date, timedelta
+
+    from .. import config
+    holidays = {date.fromisoformat(k) for k in config.HOLIDAYS}
+    d = created_local.date() if hasattr(created_local, "date") else created_local
+    left = days
+    while left > 0:
+        d += timedelta(days=1)
+        if d.weekday() < 5 and d not in holidays:
+            left -= 1
+    return d

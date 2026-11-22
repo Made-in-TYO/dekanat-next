@@ -691,3 +691,28 @@ select.input { appearance: auto; }
 .deadlines li.is-done .dl-when { background: var(--ok-soft); color: var(--ok); }
 .deadlines li.is-done .dl-when small { color: var(--ok); }
 .demo-switch { margin: 0; }
+.board-hints { list-style: none; margin: 12px 0 0; padding: 0; display: grid; gap: 6px; }
+.board-hints li { display: flex; gap: 8px; align-items: flex-start; font-size: 14.5px; color: var(--board-ink); }
+.board-hints .ic { width: 17px; height: 17px; margin-top: 2px; color: var(--amber); }
+.eta { display: flex; gap: 8px; align-items: center; color: var(--muted); font-size: 14.5px; }
+.eta .ic { width: 17px; height: 17px; }
+
+/* Доступность: рамки полей с контрастом не ниже 3:1, цели касания не меньше 24 px */
+:root { --field-line: #7C849C; }
+:root[data-theme="dark"] { --field-line: #6E77A3; }
+@media (prefers-color-scheme: dark) { :root[data-theme="auto"] { --field-line: #6E77A3; } }
+.input, .check, .choice { border-color: var(--field-line); }
+.link, .legend summary, .link-btn { display: inline-block; min-height: 24px; padding: 2px 0; }
+.icon-btn .ic-dark { display: none; }
+:root[data-theme="dark"] .icon-btn .ic-light { display: none; }
+:root[data-theme="dark"] .icon-btn .ic-dark { display: block; }
+.demo h2 { font-size: 16px; margin-bottom: 4px; }
+.demo .demo-list form { margin: 0; }
+.board-hints + .board-then { margin-top: 10px; }
+/* Таблицы на телефоне: подписи колонок у каждой ячейки */
+@media (max-width: 640px) {
+  .table td[data-label]::before { content: attr(data-label) ": "; color: var(--muted); }
+}
+.deadlines li.is-late { box-shadow: inset 3px 0 0 #C0313B; }
+.deadlines li.is-late .dl-when { background: var(--bad-soft); color: var(--bad); }
+.deadlines li.is-late .dl-when small { color: var(--bad); }

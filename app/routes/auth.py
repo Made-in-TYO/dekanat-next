@@ -13,6 +13,7 @@ from ..seed import DEMO_ACCOUNTS
 from ..web import render
 
 router = APIRouter()
+DEMO_BACK_COOKIE = "dn_demo_back"
 
 
 def _safe_next(nxt: str | None) -> str | None:
@@ -74,10 +75,15 @@ def demo_switch(request: Request, to: str = Form(...), csrf_token: str = Form(""
     target = db.scalar(select(User).where(User.login == to))
     if not s.user.is_demo or target is None or not target.is_demo:
         raise HTTPException(status_code=403)
+    came_from = s.user
     destroy_session(db, request.cookies.get(config.SESSION_COOKIE))
     token = create_session(db, target)
     resp = RedirectResponse(_home_for(target.role), status_code=303)
     _set_cookie(request, resp, token)
+    if came_from.role == "student":
+        # Запоминаем, из какого студента пришли, чтобы кнопка "Кабинет студента" вернула туда же
+        resp.set_cookie(DEMO_BACK_COOKIE, came_from.login, httponly=True, samesite="lax", secure=is_https(request),
+                        max_age=config.SESSION_TTL_HOURS * 3600, path="/")
     return resp
 
 

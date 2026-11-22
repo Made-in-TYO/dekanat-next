@@ -24,9 +24,9 @@ def test_profile_has_required_fields(kira):
 
 
 def test_request_full_cycle(kira, staff):
-    # 1. Студент заказывает справку
-    token = csrf(kira, "/requests/new?type=study")
-    r = kira.post("/requests", data={"type_code": "study", "purpose": "Для банка", "fmt": "electronic",
+    # 1. Студент заказывает справку, которую готовит деканат (о стипендии, электронную)
+    token = csrf(kira, "/requests/new?type=stipend")
+    r = kira.post("/requests", data={"type_code": "stipend", "purpose": "Для субсидии", "fmt": "electronic",
                                      "csrf_token": token}, follow_redirects=False)
     assert r.status_code == 303
     rid = int(re.search(r"/requests/(\d+)", r.headers["location"]).group(1))
@@ -43,7 +43,7 @@ def test_request_full_cycle(kira, staff):
 
     # 3. Студент видит статус, уведомление и справку с QR-кодом
     assert "Готова" in kira.get(f"/requests/{rid}").text
-    assert "готово" in kira.get("/notifications").text
+    assert "Готово: справка о получении стипендии" in kira.get("/notifications").text
     doc = kira.get(f"/requests/{rid}/document").text
     assert "<svg" in doc and "/verify/" in doc
 
@@ -131,7 +131,6 @@ def test_grade_scale_matches_itmo_document():
 
 
 def test_deadline_reminders_are_created_once(kira):
-    from app.models import Deadline
     kira.get("/home")
     kira.get("/home")
     with SessionLocal() as db:

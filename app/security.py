@@ -1,6 +1,7 @@
 """Безопасность: хеширование паролей, серверные сессии, CSRF, защита от подбора пароля."""
 import hashlib
 import hmac
+import ipaddress
 import secrets
 import threading
 import time
@@ -80,9 +81,6 @@ def reset_login_limits() -> None:  # используется в тестах и
     with _lock:
         _fails.clear()
         _ip_fails.clear()
-
-
-reset_ip_limits = reset_login_limits  # совместимость со старым именем
 
 
 def authenticate(db: Session, login: str, password: str, ip: str) -> tuple[User | None, str | None]:
@@ -165,17 +163,31 @@ def current_session(request: Request, db: Session = Depends(get_db)) -> AuthSess
     return s
 
 
-def require_student(s: AuthSession = Depends(current_session), db: Session = Depends(get_db)) -> AuthSession:
+class WrongRole(Exception):
+    """Страница для другой роли: при открытии ссылки (GET) отправляем в свой кабинет, а не показываем ошибку."""
+
+    def __init__(self, home: str):
+        self.home = home
+
+
+def _deny(request: Request, s: AuthSession):
+    if request.method == "GET":
+        raise WrongRole("/staff" if s.user.role == "staff" else "/home")
+    raise HTTPException(status_code=403)
+
+
+def require_student(request: Request, s: AuthSession = Depends(current_session),
+                    db: Session = Depends(get_db)) -> AuthSession:
     if s.user.role != "student" or s.user.student is None:
-        raise HTTPException(status_code=403)
+        _deny(request, s)
     from .services.notify import remind_deadlines
     remind_deadlines(db, s.user.student)
     return s
 
 
-def require_staff(s: AuthSession = Depends(current_session)) -> AuthSession:
+def require_staff(request: Request, s: AuthSession = Depends(current_session)) -> AuthSession:
     if s.user.role != "staff":
-        raise HTTPException(status_code=403)
+        _deny(request, s)
     return s
 
 
@@ -185,15 +197,38 @@ def check_csrf(s: AuthSession, token: str | None) -> None:
         raise HTTPException(status_code=403, detail="csrf")
 
 
+def _is_internal(addr: str) -> bool:
+    try:
+        ip = ipaddress.ip_address(addr)
+    except ValueError:
+        return False
+    return ip.is_private or ip.is_loopback
+
+
 def client_ip(request: Request) -> str:
-    """Адрес клиента. За прокси хостинга он приходит в X-Forwarded-For.
-    Берем самый правый адрес: его дописывает сам прокси, а левые части клиент может подделать."""
+    """Адрес клиента для защиты от подбора пароля.
+
+    Заголовку X-Forwarded-For верим, только если запрос пришел от прокси во внутренней сети хостинга:
+    если клиент подключился напрямую, заголовок мог написать он сам. Внутри цепочки прокси берем
+    адрес на позиции TRUSTED_PROXY_HOPS справа: его дописал наш прокси, а левые части можно подделать.
+    """
+    peer = request.client.host if request.client else "unknown"
     fwd = request.headers.get("x-forwarded-for")
-    if fwd:
+    if fwd and _is_internal(peer):
         parts = [p.strip() for p in fwd.split(",") if p.strip()]
         if parts:
-            return parts[-1]
-    return request.client.host if request.client else "unknown"
+            return parts[-min(config.TRUSTED_PROXY_HOPS, len(parts))]
+    return peer
+
+
+def public_base_url(request: Request) -> str:
+    """Адрес сайта для ссылок вне страницы (QR-код справки). За прокси хостинга схема берется из
+    X-Forwarded-Proto, чтобы ссылка была https, а не http."""
+    if config.PUBLIC_BASE_URL:
+        return config.PUBLIC_BASE_URL
+    scheme = "https" if is_https(request) else request.url.scheme
+    host = request.headers.get("host") or request.url.netloc
+    return f"{scheme}://{host}"
 
 
 def is_https(request: Request) -> bool:

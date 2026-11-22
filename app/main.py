@@ -6,7 +6,7 @@ import logging
 from contextlib import asynccontextmanager
 from urllib.parse import quote, urlparse
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import PlainTextResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
@@ -14,7 +14,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from . import config
 from .routes import auth, public, staff, student
-from .security import LoginRequired, is_https
+from .security import LoginRequired, WrongRole, is_https
 from .seed import ensure_demo_fresh, init_db
 from .web import render
 
@@ -54,7 +54,7 @@ async def security_middleware(request: Request, call_next):
     # Запросы, меняющие данные, принимаем только со своего сайта (защита от CSRF вдобавок к токену в формах)
     if request.method not in ("GET", "HEAD", "OPTIONS"):
         origin = request.headers.get("origin")
-        if origin and origin != "null":
+        if origin:  # "null" тоже чужой: так браузер помечает запросы из песочниц и после перенаправлений
             allowed = {(request.headers.get(h) or "").split(":")[0] for h in ("host", "x-forwarded-host")} | config.TRUSTED_HOSTS
             if urlparse(origin).hostname not in allowed:
                 return PlainTextResponse("Запрос с чужого сайта отклонен", status_code=403)
@@ -72,6 +72,11 @@ async def security_middleware(request: Request, call_next):
     if not request.url.path.startswith("/static"):
         h.setdefault("Cache-Control", "no-store")
     return response
+
+
+@app.exception_handler(WrongRole)
+async def wrong_role_handler(_request: Request, exc: WrongRole):
+    return RedirectResponse(exc.home, status_code=303)
 
 
 @app.exception_handler(LoginRequired)
@@ -101,7 +106,11 @@ async def http_error(request: Request, exc: StarletteHTTPException):
 
 
 @app.exception_handler(RequestValidationError)
-async def validation_error(request: Request, _exc: RequestValidationError):
+async def validation_error(request: Request, exc: RequestValidationError):
+    # Неверный номер в адресе (не число, слишком большое) значит "такой страницы нет"
+    if any(err.get("loc", ("",))[0] == "path" for err in exc.errors()):
+        title, text = ERROR_TEXT[404]
+        return render(request, "error.html", {"code": 404, "title": title, "text": text}, status_code=404)
     title, text = ERROR_TEXT[400]
     return render(request, "error.html", {"code": 400, "title": title, "text": text}, status_code=400)
 

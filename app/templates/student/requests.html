@@ -14,7 +14,7 @@
     {% set available = not t.budget_only or st.funding == 'Бюджет' %}
     <li>{% if available %}<a href="/requests/new?type={{ t.code }}">{% else %}<div class="cat-off" aria-disabled="true">{% endif %}
       <span class="cat-ic">{{ icon('file-text' if t.kind != 'application' else 'send') }}</span>
-      <span class="cat-text"><b>{{ t.title }}</b><small>{% if not available %}Только для студентов на бюджете{% else %}{% if t.days == 1 %}за 1 рабочий день{% else %}до {{ t.days }} рабочих дней{% endif %}{% if t.kind == 'certificate' and 'electronic' in t.formats %}, есть электронная{% elif t.kind == 'application' %}, заявление{% endif %}{% endif %}</small></span>
+      <span class="cat-text"><b>{{ t.title }}</b><small>{% if not available %}Только для студентов на бюджете{% else %}{% if t.code == 'study' %}электронная сразу, бумажная за 1 рабочий день{% elif t.days == 1 %}за 1 рабочий день{% else %}до {{ t.days }} рабочих дней{% endif %}{% if t.kind == 'certificate' and 'electronic' in t.formats %}, есть электронная{% elif t.kind == 'application' %}, заявление{% endif %}{% endif %}</small></span>
       {% if available %}{{ icon('chevron-right', 'ic cat-go') }}</a>{% else %}</div>{% endif %}
     </li>
     {% endfor %}
@@ -28,7 +28,7 @@
     {% for r in active %}
     <li><a href="/requests/{{ r.id }}">
       <span class="rl-top"><b>{{ TYPES[r.type_code].title }}</b>{{ ui.status_chip(r) }}</span>
-      <small class="muted">{{ r.number }}, отправлена {{ r.created_at|ago }}</small>
+      <small class="muted">{{ r.number }}, отправлена {{ r.created_at|ago }}{% if r.status in ('submitted', 'in_progress', 'need_info') %}, {{ 'решение' if TYPES[r.type_code].kind == 'application' else 'готово' }} примерно {{ ready_eta(r.created_at|local, TYPES[r.type_code].days)|fdate(with_weekday=True) }}{% endif %}</small>
       {{ ui.tracker(r) }}
     </a></li>
     {% endfor %}

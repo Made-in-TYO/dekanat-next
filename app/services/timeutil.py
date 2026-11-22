@@ -50,7 +50,7 @@ def on_day(d: date) -> str:
 
 def from_day(d: date) -> str:
     """'с вторника, 24 ноября'"""
-    prep = "со" if d.weekday() == 1 else "с"
+    prep = "со" if d.weekday() in (1, 2) else "с"  # со вторника, со среды
     return f"{prep} {WEEKDAYS_GEN[d.weekday()]}, {fmt_date(d)}"
 
 

@@ -1,13 +1,13 @@
 """Шаблоны и общий контекст страниц."""
 import os
-from datetime import date, datetime
+from datetime import datetime
 
 from fastapi import Request
 from fastapi.templating import Jinja2Templates
 from markupsafe import Markup
 
 from .services import timeutil
-from .services.catalog import FORMAT_LABELS, TYPES, status_info, status_label, track_labels
+from .services.catalog import FORMAT_LABELS, TYPES, is_instant, ready_eta, status_info, status_label, track_labels
 from .services.notify import unread_count
 
 templates = Jinja2Templates(directory=os.path.join(os.path.dirname(__file__), "templates"))
@@ -44,7 +44,7 @@ def _ago(dt_utc: datetime | None) -> str:
 
 
 env.globals.update(week_label=timeutil.week_label, greeting=timeutil.greeting, icon=icon, TYPES=TYPES, FORMAT_LABELS=FORMAT_LABELS, status_label=status_label, status_info=status_info,
-                   track_labels=track_labels,
+                   track_labels=track_labels, ready_eta=ready_eta, is_instant=is_instant,
                    asset_v=ASSET_VERSION, plural=timeutil.plural)
 env.filters.update(
     local=_local,
@@ -66,6 +66,8 @@ def render(request: Request, name: str, ctx: dict | None = None, status_code: in
     ctx["user"] = auth.user if auth else None
     ctx["csrf"] = auth.csrf_token if auth else ""
     ctx["today"] = timeutil.today()
+    back = request.cookies.get("dn_demo_back", "kira")
+    ctx["demo_back"] = back if back in ("kira", "timur") else "kira"
     if auth and db is not None and "unread" not in ctx:
         ctx["unread"] = unread_count(db, auth.user_id)
     return templates.TemplateResponse(request, name, ctx, status_code=status_code)
@@ -74,6 +76,7 @@ def render(request: Request, name: str, ctx: dict | None = None, status_code: in
 # Сообщения после действий: только фиксированные тексты по ключу (никакого отражения ввода в URL)
 FLASH = {
     "created": "Заявка отправлена в деканат. Статус будет обновляться здесь и в уведомлениях",
+    "instant": "Справка готова: данные взяты из учетной системы, очередь не понадобилась",
     "cancelled": "Заявка отменена",
     "replied": "Ответ отправлен в деканат",
     "password": "Пароль изменен. Остальные сеансы завершены",

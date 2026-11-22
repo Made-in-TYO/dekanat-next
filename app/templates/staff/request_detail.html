@@ -46,7 +46,7 @@
     <ol class="history">
       {% for e in r.events|reverse %}
       <li><span class="h-dot is-{{ e.status }}" aria-hidden="true"></span>
-        <div><b>{{ status_label(e.status, r.type_code, r.fmt) }}</b><small>{{ e.created_at|local|fdt }}, {{ 'деканат' if e.actor == 'staff' else 'студент' }}</small>
+        <div><b>{{ status_label(e.status, r.type_code, r.fmt) }}</b><small>{{ e.created_at|local|fdt }}, {{ {'staff': 'деканат', 'system': 'автоматически'}.get(e.actor, 'студент') }}</small>
         {% if e.comment %}<p>{{ e.comment }}</p>{% endif %}</div></li>
       {% endfor %}
     </ol>

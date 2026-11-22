@@ -17,8 +17,8 @@
   <section class="summary-strip" aria-label="Сводка">
     <p><b>{{ progress|length }}</b><span>дисциплин, {{ credits }} з. е.</span></p>
     <p class="s-ok"><b>{{ counts.ok }}</b><span>идут хорошо</span></p>
-    <p class="s-watch"><b>{{ counts.watch }}</b><span>стоит подтянуть</span></p>
-    <p class="s-risk"><b>{{ counts.risk + counts.fail }}</b><span>с риском</span></p>
+    <p class="{{ 's-watch' if counts.watch else '' }}"><b>{{ counts.watch }}</b><span>стоит подтянуть</span></p>
+    <p class="{{ 's-risk' if counts.risk + counts.fail else '' }}"><b>{{ counts.risk + counts.fail }}</b><span>с риском</span></p>
   </section>
   <p class="muted small scale-note">Шкала: 60 баллов для зачета, больше 90 для оценки «отлично». Метки на полосе показывают эти пороги.</p>
 
@@ -98,8 +98,8 @@
       <thead><tr><th scope="col">Дисциплина</th><th scope="col">Форма</th><th scope="col">Баллы</th><th scope="col">Оценка</th></tr></thead>
       <tbody>
         {% for r in rows %}
-        <tr><td>{{ r.discipline }}</td><td>{{ G.CONTROL_LABELS[r.control] }}</td><td>{{ r.points|num }}</td>
-          <td><span class="grade grade-{{ G.letter(r.points) }}">{{ G.grade_label(r.points, r.control) }}{% if r.control != 'credit' %}, {{ G.letter(r.points) }}{% endif %}</span></td></tr>
+        <tr><td data-label="Дисциплина">{{ r.discipline }}</td><td data-label="Форма">{{ G.CONTROL_LABELS[r.control] }}</td><td data-label="Баллы">{{ r.points|num }}</td>
+          <td data-label="Оценка"><span class="grade grade-{{ G.letter(r.points) }}">{{ G.grade_label(r.points, r.control) }}{% if r.control != 'credit' %}, {{ G.letter(r.points) }}{% endif %}</span></td></tr>
         {% endfor %}
       </tbody>
     </table>

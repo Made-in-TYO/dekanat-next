@@ -30,7 +30,7 @@
       <label class="choice">
         <input type="radio" name="fmt" value="{{ f }}" {% if (form.fmt or t.formats[0]) == f %}checked{% endif %} data-fmt>
         <span><b>{{ FORMAT_LABELS[f] }}</b>
-          <small>{% if f == 'electronic' %}Появится в заявке, проверяется по QR-коду. Подходит большинству организаций{% else %}С подписью и печатью. Заберете в деканате, мы пришлем уведомление{% endif %}</small></span>
+          <small>{% if f == 'electronic' and is_instant(t.code, f) %}Готова сразу после нажатия кнопки, проверяется по QR-коду. Подходит большинству организаций{% elif f == 'electronic' %}Появится в заявке, проверяется по QR-коду. Подходит большинству организаций{% else %}С подписью и печатью. Заберете в деканате, мы пришлем уведомление{% endif %}</small></span>
       </label>
       {% endfor %}
     </div>
@@ -54,7 +54,7 @@
     <textarea class="input" id="comment" name="comment" rows="3" maxlength="1000">{{ form.comment or '' }}</textarea>
   </div>
 
-  <p class="muted small">Обычный срок: {% if t.days == 1 %}1 рабочий день{% else %}до {{ t.days }} рабочих дней{% endif %}. Статус будет меняться в заявке и в уведомлениях.</p>
+  <p class="muted small">{% if t.code == 'study' %}Электронная справка будет готова сразу, бумажная за 1 рабочий день.{% else %}Обычный срок: {% if t.days == 1 %}1 рабочий день{% else %}до {{ t.days }} рабочих дней{% endif %}.{% endif %} Статус будет меняться в заявке и в уведомлениях.</p>
   <div class="form-actions">
     <button class="btn btn-primary" type="submit" data-busy-text="Отправляем...">Отправить заявку</button>
     <a class="btn btn-ghost" href="/requests">Отмена</a>

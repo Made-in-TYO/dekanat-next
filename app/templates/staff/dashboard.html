@@ -26,7 +26,7 @@
       {% for r in fresh %}
       <tr><td><a href="/staff/requests/{{ r.id }}"><b>{{ TYPES[r.type_code].title }}</b><small>{{ r.number }}, {{ 'электронная' if r.fmt == 'electronic' else 'бумажная' }}</small></a></td>
         <td>{{ r.student.user.full_name }}<small>{{ r.student.group_code }}</small></td>
-        <td>{{ ui.status_chip(r) }}</td><td>{{ r.created_at|ago }}</td></tr>
+        <td>{{ ui.status_chip(r) }}{% if r.status == 'in_progress' and r.events and r.events[-1].status == 'reply' %} <span class="chip chip-warn">Ответ студента</span>{% endif %}</td><td>{{ r.created_at|ago }}</td></tr>
       {% endfor %}
     </tbody>
   </table>
