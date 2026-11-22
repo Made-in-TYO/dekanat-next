@@ -1,0 +1,20 @@
+{% extends "app.html" %}
+{% import "partials/ui.html" as ui %}
+{% block title %}Вопросы студентов{% endblock %}
+{% block content %}
+<header class="page-head"><h1>Вопросы студентов</h1><p class="muted">Сначала те, где ждут ответа</p></header>
+{% if rows %}
+<ul class="threads">
+  {% for st, last, unread in rows %}
+  <li class="{% if unread %}is-unread{% endif %}"><a href="/staff/messages/{{ st.id }}">
+    <span class="avatar" aria-hidden="true">{{ st.user.initials }}</span>
+    <span class="th-text"><b>{{ st.user.full_name }}</b><small>{{ st.group_code }}, {{ last.created_at|ago }}</small>
+      <span>{{ 'Вы: ' if last.from_staff else '' }}{{ last.body[:120] }}</span></span>
+    {% if unread %}<span class="count">{{ unread }}</span>{% endif %}
+  </a></li>
+  {% endfor %}
+</ul>
+{% else %}
+  {{ ui.empty('message-circle', 'Вопросов нет', 'Когда студент напишет в деканат, переписка появится здесь.') }}
+{% endif %}
+{% endblock %}

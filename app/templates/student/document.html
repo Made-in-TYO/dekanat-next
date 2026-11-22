@@ -1,0 +1,36 @@
+{% extends "app.html" %}
+{% block title %}{{ t.title }}{% endblock %}
+{% block content %}
+<a class="back no-print" href="/requests/{{ r.id }}">{{ icon('arrow-left') }}К заявке</a>
+<div class="doc-actions no-print">
+  <button class="btn btn-secondary" type="button" data-print>{{ icon('printer') }}Распечатать или сохранить PDF</button>
+</div>
+
+<article class="paper-doc" aria-label="Электронная справка">
+  <p class="doc-watermark">ОБРАЗЕЦ. КОНЦЕПТ ДЛЯ КОНКУРСА, НЕ ЯВЛЯЕТСЯ ДОКУМЕНТОМ</p>
+  <header class="doc-head">
+    <img src="/static/img/logo.svg?v={{ asset_v }}" alt="" width="40" height="40">
+    <div><b>Деканат Next</b><small>концепт электронного документа</small></div>
+  </header>
+  <h1 class="doc-title">{{ t.title|upper }}</h1>
+  <p class="doc-num">№ {{ r.number }} от {{ (r.issued_at|local).date()|fdate(with_year=True) }}</p>
+  {% if r.type_code == 'study' %}
+  <p>Дана {{ st.user.full_name }} в том, что {{ 'она' if st.user.full_name.split()[0].endswith('а') else 'он' }}
+     действительно является студентом {{ st.course }} курса, {{ st.level|lower }}, {{ st.study_form|lower }} форма обучения,
+     {{ st.funding|lower }}, направление подготовки {{ st.program_code }} «{{ st.program_name }}»,
+     {{ st.faculty|lower }}, группа {{ st.group_code }}.</p>
+  <p>Срок обучения: {{ st.admission_year }}-{{ st.admission_year + (2 if st.level == 'Магистратура' else 4) }}.</p>
+  {% elif r.type_code == 'stipend' %}
+  <p>Дана {{ st.user.full_name }}, группа {{ st.group_code }}, о том, что за последние 6 месяцев начислена
+     государственная академическая стипендия. Сумма в этом демо не указывается.</p>
+  {% else %}
+  <p>Дана {{ st.user.full_name }}, группа {{ st.group_code }}.</p>
+  {% endif %}
+  {% if r.purpose %}<p>Справка выдана для предъявления: {{ r.purpose|lower }}.</p>{% endif %}
+  <footer class="doc-foot">
+    <div class="doc-sign"><small>Подписано электронной подписью</small><b>Мельникова О. С.</b><small>специалист по учебной работе</small></div>
+    <figure class="doc-qr">{{ qr }}<figcaption>Проверить подлинность: наведите камеру на код</figcaption></figure>
+  </footer>
+</article>
+<p class="muted small no-print">Ссылка проверки: <a href="{{ verify_url }}">{{ verify_url }}</a>. По ней видны только номер, тип документа, дата и инициалы.</p>
+{% endblock %}

@@ -1,0 +1,109 @@
+{% extends "app.html" %}
+{% import "partials/ui.html" as ui %}
+{% block title %}Учеба{% endblock %}
+{% block content %}
+<header class="page-head">
+  <h1>Учеба</h1>
+  <p class="muted">{{ st.program_code }} {{ st.program_name }}, {{ st.course }} курс, осенний семестр 2026</p>
+</header>
+
+<div class="segmented segmented-wide" role="tablist" aria-label="Разделы учебы">
+  <a role="tab" href="/grades?tab=current" class="{% if tab == 'current' %}is-active{% endif %}" aria-selected="{{ 'true' if tab == 'current' else 'false' }}">Семестр</a>
+  <a role="tab" href="/grades?tab=session" class="{% if tab == 'session' %}is-active{% endif %}" aria-selected="{{ 'true' if tab == 'session' else 'false' }}">Сессия</a>
+  <a role="tab" href="/grades?tab=history" class="{% if tab == 'history' %}is-active{% endif %}" aria-selected="{{ 'true' if tab == 'history' else 'false' }}">Зачетка</a>
+</div>
+
+{% if tab == 'current' %}
+  <section class="summary-strip" aria-label="Сводка">
+    <p><b>{{ progress|length }}</b><span>дисциплин, {{ credits }} з. е.</span></p>
+    <p class="s-ok"><b>{{ counts.ok }}</b><span>идут хорошо</span></p>
+    <p class="s-watch"><b>{{ counts.watch }}</b><span>стоит подтянуть</span></p>
+    <p class="s-risk"><b>{{ counts.risk + counts.fail }}</b><span>с риском</span></p>
+  </section>
+  <p class="muted small scale-note">Шкала: 60 баллов для зачета, больше 90 для оценки «отлично». Метки на полосе показывают эти пороги.</p>
+
+  <ul class="disciplines">
+    {% for p in progress %}
+    <li id="d{{ p.enrollment_id }}" class="disc is-{{ p.state }}">
+      <details>
+        <summary>
+          <span class="disc-head">
+            <b class="disc-name">{{ p.name }}</b>
+            <span class="disc-sub">{{ p.control_label }}, {{ p.credits }} з. е., {{ p.teacher }}</span>
+          </span>
+          <span class="disc-points"><b>{{ p.points|num }}</b><small>из {{ (p.assessed_max + p.remaining_max)|num }}</small></span>
+          {{ ui.bar(p.bar_points) }}
+          <span class="disc-state">{{ p.state_text }}{% if p.state not in ('done', 'fail') %}{% if p.to_pass > 0 %}. {{ 'До зачета' if p.control == 'credit' else 'До минимума в 60' }} не хватает {{ p.to_pass|num }} {{ plural(p.to_pass|int, 'балла', 'баллов', 'баллов') }}{% elif p.to_excellent > 0 and p.possible_max >= G.EXCELLENT %}. До «отлично» не хватает {{ p.to_excellent|num }} {{ plural(p.to_excellent|int, 'балла', 'баллов', 'баллов') }}{% endif %}{% endif %}</span>
+        </summary>
+        <div class="disc-detail">
+          <table class="items">
+            <caption class="sr-only">Баллы по элементам дисциплины</caption>
+            <thead><tr><th scope="col">Элемент</th><th scope="col">Баллы</th><th scope="col">Срок</th></tr></thead>
+            <tbody>
+            {% for it in p.items %}
+              <tr class="{% if it.points is none %}is-pending{% endif %}">
+                <td>{{ it.title }}</td>
+                <td>{% if it.points is not none %}<b>{{ it.points|num }}</b>{% else %}-{% endif %} / {{ it.max_points|num }}</td>
+                <td>{% if it.due and it.points is none %}{{ it.due|fdate }}{% elif it.points is not none %}оценено{% else %}-{% endif %}</td>
+              </tr>
+            {% endfor %}
+            </tbody>
+          </table>
+          {% if p.remaining_max > 0 %}
+          <div class="calc" data-calc data-points="{{ p.points }}" data-control="{{ p.control }}">
+            <label for="calc{{ p.enrollment_id }}">{{ icon('calculator') }}Что если: сколько наберу из оставшихся {{ p.remaining_max|num }}</label>
+            <input id="calc{{ p.enrollment_id }}" type="range" min="0" max="{{ p.remaining_max }}" step="1" value="{{ (p.remaining_max * p.pace)|round|int }}">
+            <output for="calc{{ p.enrollment_id }}" data-calc-out>При текущем темпе выйдет около {{ p.forecast_points }} баллов</output>
+          </div>
+          {% endif %}
+        </div>
+      </details>
+    </li>
+    {% endfor %}
+  </ul>
+
+{% elif tab == 'session' %}
+  <section class="section">
+    <h2>Зимняя сессия</h2>
+    {% if exams %}
+    <ol class="exams">
+      {% for e in exams %}
+      <li class="exam is-{{ e.kind }}">
+        <span class="ex-date"><b>{{ e.starts_at.day }}</b><small>{{ e.starts_at.date()|fdate|replace(e.starts_at.day|string ~ ' ', '') }}</small></span>
+        <span class="ex-what">
+          <span class="chip {% if e.kind == 'exam' %}chip-brand{% else %}chip-plain{% endif %}">{{ 'Экзамен' if e.kind == 'exam' else ('Консультация' if e.kind == 'consultation' else 'Зачет') }}</span>
+          <b>{{ e.discipline.name }}</b>
+          <small>{{ e.starts_at.strftime('%H:%M') }}, ауд. {{ e.room }}, {{ e.building }}</small>
+        </span>
+      </li>
+      {% endfor %}
+    </ol>
+    {% else %}
+      {{ ui.empty('calendar-days', 'Расписание сессии пока не опубликовано', 'Как только деканат его выложит, придет уведомление.') }}
+    {% endif %}
+    <p class="muted small">Совпали экзамены или есть уважительная причина? Подайте заявление на <a href="/requests/new?type=schedule">индивидуальный график сессии</a>.</p>
+  </section>
+
+{% else %}
+  <section class="summary-strip" aria-label="Итоги">
+    <p><b>{{ avg if avg else '-' }}</b><span>средний балл по экзаменам и дифзачетам</span></p>
+    <p><b>{{ semesters.values()|map('length')|sum }}</b><span>закрытых дисциплин</span></p>
+    <p class="s-ok"><b>0</b><span>академических задолженностей</span></p>
+  </section>
+  {% for sem, rows in semesters.items() %}
+  <section class="section">
+    <h2>{{ sem }}</h2>
+    <table class="table">
+      <thead><tr><th scope="col">Дисциплина</th><th scope="col">Форма</th><th scope="col">Баллы</th><th scope="col">Оценка</th></tr></thead>
+      <tbody>
+        {% for r in rows %}
+        <tr><td>{{ r.discipline }}</td><td>{{ G.CONTROL_LABELS[r.control] }}</td><td>{{ r.points|num }}</td>
+          <td><span class="grade grade-{{ G.letter(r.points) }}">{{ G.grade_label(r.points, r.control) }}{% if r.control != 'credit' %}, {{ G.letter(r.points) }}{% endif %}</span></td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </section>
+  {% endfor %}
+  <p class="muted small">Нужна выписка с печатью? <a href="/requests/new?type=transcript">Заказать выписку оценок</a></p>
+{% endif %}
+{% endblock %}

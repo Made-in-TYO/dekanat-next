@@ -1,0 +1,9 @@
+{% extends "plain.html" %}
+{% block title %}Нет соединения{% endblock %}
+{% block content %}
+<section class="error-page">
+  <p class="error-code">{{ icon('refresh-cw') }}</p>
+  <h1>Нет соединения с интернетом</h1>
+  <p class="muted">Кабинет откроется, как только связь вернется. Попробуйте обновить страницу.</p>
+</section>
+{% endblock %}

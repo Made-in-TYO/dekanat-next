@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="ru" data-theme="auto">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>{% block title %}Деканат Next{% endblock %} | Деканат Next</title>
+  <meta name="description" content="Концепт личного кабинета студента для конкурса MGIMO AI Challenge. Не официальный сервис вуза.">
+  <meta name="theme-color" content="#1B2150">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" href="/static/img/logo.svg?v={{ asset_v }}" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/static/img/icon-192.png?v={{ asset_v }}">
+  <link rel="preload" href="/static/fonts/golos-text-cyrillic-400-normal.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="/static/fonts/unbounded-cyrillic-600-normal.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="/static/css/app.css?v={{ asset_v }}">
+  <script src="/static/js/theme.js?v={{ asset_v }}"></script>
+  <script src="/static/js/app.js?v={{ asset_v }}" defer></script>
+</head>
+<body class="{% block body_class %}{% endblock %}">
+<a class="skip" href="#main">Перейти к содержимому</a>
+{% block shell %}{% endblock %}
+{% set ft = flash_text(request) %}
+{% if ft %}<div class="toast" role="status" data-toast>{{ icon('circle-check') }}<span>{{ ft }}</span></div>{% endif %}
+</body>
+</html>

@@ -1,0 +1,59 @@
+{% extends "app.html" %}
+{% block title %}Профиль{% endblock %}
+{% block content %}
+<header class="profile-head">
+  <span class="avatar avatar-lg" aria-hidden="true">{{ user.initials }}</span>
+  <div>
+    <h1>{{ user.full_name }}</h1>
+    <p class="muted">{{ st.level }}, {{ st.course }} курс, группа {{ st.group_code }}</p>
+  </div>
+</header>
+
+<div class="two-col">
+  <section class="section">
+    <h2>Учеба</h2>
+    <dl class="dl">
+      <dt>Факультет</dt><dd>{{ st.faculty }}</dd>
+      <dt>Направление</dt><dd>{{ st.program_code }} {{ st.program_name }}</dd>
+      <dt>Образовательная программа</dt><dd>{{ st.profile_name }}</dd>
+      <dt>Курс и группа</dt><dd>{{ st.course }} курс, {{ st.group_code }}</dd>
+      <dt>Форма обучения</dt><dd>{{ st.study_form }}, {{ st.funding|lower }}</dd>
+      <dt>Номер зачетной книжки</dt><dd>{{ st.record_book }}</dd>
+      <dt>Год поступления</dt><dd>{{ st.admission_year }}</dd>
+      <dt>Куратор</dt><dd>{{ st.curator }}</dd>
+      <dt>Почта</dt><dd>{{ st.email }}</dd>
+    </dl>
+    <p class="muted small">Нашли ошибку в данных? <a href="/messages">Напишите в деканат</a>.</p>
+  </section>
+
+  <section class="section">
+    <h2>Безопасность</h2>
+    <form method="post" action="/profile/password" class="form" data-submit-once>
+      <input type="hidden" name="csrf_token" value="{{ csrf }}">
+      {% if pw_error %}<p class="alert alert-bad" role="alert">{{ icon('triangle-alert') }}<span>{{ pw_error }}</span></p>{% endif %}
+      <div class="field"><label for="current">Текущий пароль</label>
+        <input class="input" id="current" name="current" type="password" autocomplete="current-password" required></div>
+      <div class="field"><label for="new">Новый пароль</label>
+        <input class="input" id="new" name="new" type="password" autocomplete="new-password" minlength="8" required>
+        <p class="hint">Не короче 8 символов</p></div>
+      <div class="field"><label for="repeat">Повторите новый пароль</label>
+        <input class="input" id="repeat" name="repeat" type="password" autocomplete="new-password" minlength="8" required></div>
+      <button class="btn btn-secondary" type="submit" data-busy-text="Сохраняем...">Сменить пароль</button>
+    </form>
+    <p class="muted small">{{ icon('shield-check') }} Пароль хранится только в виде хеша argon2id. После смены пароля другие сеансы завершаются.</p>
+
+    <h2 class="mt">Оформление</h2>
+    <div class="theme-choice" role="radiogroup" aria-label="Тема оформления">
+      <button type="button" data-set-theme="light" role="radio">{{ icon('sun') }}Светлая</button>
+      <button type="button" data-set-theme="dark" role="radio">{{ icon('moon') }}Темная</button>
+      <button type="button" data-set-theme="auto" role="radio">{{ icon('monitor') }}Как в системе</button>
+    </div>
+    <p class="muted small install-hint" data-install-hint>{{ icon('download') }} Кабинет можно добавить на экран телефона как приложение: в браузере выберите «На экран Домой».</p>
+
+    <form method="post" action="/logout" class="mt">
+      <input type="hidden" name="csrf_token" value="{{ csrf }}">
+      <button class="btn btn-ghost btn-danger" type="submit">{{ icon('log-out') }}Выйти</button>
+    </form>
+  </section>
+</div>
+{% endblock %}

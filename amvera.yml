@@ -1,0 +1,13 @@
+# Конфигурация деплоя на Amvera Cloud (https://amvera.ru)
+meta:
+  environment: python
+  toolchain:
+    name: pip
+    version: 3.12
+build:
+  requirementsPath: requirements.txt
+run:
+  # Постоянное хранилище: здесь лежит база SQLite, она не стирается при перезапуске
+  persistenceMount: /data
+  containerPort: 8000
+  command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --proxy-headers --forwarded-allow-ips=*

@@ -1,0 +1,58 @@
+{% extends "app.html" %}
+{% block title %}{{ t.title }}{% endblock %}
+{% block content %}
+<a class="back" href="/requests">{{ icon('arrow-left') }}Заявки</a>
+<header class="page-head">
+  <h1>{{ t.title }}</h1>
+  <p class="muted">{{ t.description }}</p>
+</header>
+
+<form method="post" action="/requests" class="form form-narrow" data-submit-once novalidate>
+  <input type="hidden" name="csrf_token" value="{{ csrf }}">
+  <input type="hidden" name="type_code" value="{{ t.code }}">
+  {% set errors = errors or {} %}
+  {% if errors %}<p class="alert alert-bad" role="alert">{{ icon('triangle-alert') }}<span>Проверьте поля, отмеченные ниже</span></p>{% endif %}
+
+  {% if t.needs_purpose %}
+  <div class="field{% if errors.purpose %} has-error{% endif %}">
+    <label for="purpose">{{ 'Для чего нужна справка' if t.kind == 'certificate' else 'Причина' }}</label>
+    <input class="input" id="purpose" name="purpose" maxlength="200" required value="{{ form.purpose or '' }}"
+           placeholder="{{ t.purpose_hint }}"{% if errors.purpose %} aria-invalid="true" aria-describedby="purpose-err"{% endif %}>
+    {% if errors.purpose %}<p class="field-error" id="purpose-err">{{ errors.purpose }}</p>{% endif %}
+  </div>
+  {% endif %}
+
+  <fieldset class="field{% if errors.fmt %} has-error{% endif %}">
+    <legend>Формат</legend>
+    <div class="choice-list">
+      {% for f in t.formats %}
+      <label class="choice">
+        <input type="radio" name="fmt" value="{{ f }}" {% if (form.fmt or t.formats[0]) == f %}checked{% endif %} data-fmt>
+        <span><b>{{ FORMAT_LABELS[f] }}</b>
+          <small>{% if f == 'electronic' %}Появится в заявке, проверяется по QR-коду. Подходит большинству организаций{% else %}С подписью и печатью. Заберете в деканате, мы пришлем уведомление{% endif %}</small></span>
+      </label>
+      {% endfor %}
+    </div>
+    {% if errors.fmt %}<p class="field-error">{{ errors.fmt }}</p>{% endif %}
+  </fieldset>
+
+  {% if 'paper' in t.formats and t.kind == 'certificate' %}
+  <div class="field{% if errors.copies %} has-error{% endif %}" data-copies>
+    <label for="copies">Количество экземпляров (для бумажной)</label>
+    <input class="input input-short" id="copies" name="copies" type="number" min="1" max="5" value="{{ form.copies or 1 }}">
+    {% if errors.copies %}<p class="field-error">{{ errors.copies }}</p>{% endif %}
+  </div>
+  {% endif %}
+
+  <div class="field">
+    <label for="comment">Комментарий для деканата <span class="muted">(необязательно)</span></label>
+    <textarea class="input" id="comment" name="comment" rows="3" maxlength="1000">{{ form.comment or '' }}</textarea>
+  </div>
+
+  <p class="muted small">Обычный срок: {% if t.days == 1 %}1 рабочий день{% else %}до {{ t.days }} рабочих дней{% endif %}. Статус будет меняться в заявке и в уведомлениях.</p>
+  <div class="form-actions">
+    <button class="btn btn-primary" type="submit" data-busy-text="Отправляем...">Отправить заявку</button>
+    <a class="btn btn-ghost" href="/requests">Отмена</a>
+  </div>
+</form>
+{% endblock %}

@@ -1,0 +1,22 @@
+{% extends "plain.html" %}
+{% block title %}Проверка справки{% endblock %}
+{% block content %}
+<section class="verify {{ 'is-ok' if ok else 'is-bad' }}">
+  {% if ok %}
+    <span class="verify-ic">{{ icon('shield-check') }}</span>
+    <h1>Справка действительна</h1>
+    <dl class="dl">
+      <dt>Документ</dt><dd>{{ title }}</dd>
+      <dt>Номер</dt><dd>{{ number }}</dd>
+      <dt>Выдана</dt><dd>{{ (issued|local).date()|fdate(with_year=True) }}</dd>
+      <dt>Студент</dt><dd>{{ holder }}</dd>
+    </dl>
+    <p class="muted small">Для защиты персональных данных показаны только инициалы. Сверьте номер с номером на справке.</p>
+  {% else %}
+    <span class="verify-ic">{{ icon('circle-x') }}</span>
+    <h1>Справка не найдена</h1>
+    <p class="muted">Код проверки неверный или справка отозвана. Уточните у владельца документа.</p>
+  {% endif %}
+  <p class="muted small">Это демонстрация проверки в концепте для конкурса, а не настоящий документ.</p>
+</section>
+{% endblock %}

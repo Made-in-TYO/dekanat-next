@@ -1,0 +1,56 @@
+{% extends "app.html" %}
+{% import "partials/ui.html" as ui %}
+{% block title %}{{ r.number }}{% endblock %}
+{% block content %}
+<a class="back" href="/staff/requests">{{ icon('arrow-left') }}Заявки</a>
+<header class="page-head">
+  <h1>{{ t.title }}</h1>
+  <p class="muted">{{ r.number }}, отправлена {{ r.created_at|local|fdt }}</p>
+</header>
+
+<div class="two-col">
+  <section class="section">
+    <div class="rs-top">{{ ui.status_chip(r.status) }}</div>
+    {{ ui.tracker(r) }}
+    <dl class="dl">
+      <dt>Студент</dt><dd>{{ r.student.user.full_name }}, {{ r.student.group_code }}, {{ r.student.faculty_short }}</dd>
+      <dt>Направление</dt><dd>{{ r.student.program_code }} {{ r.student.program_name }}, {{ r.student.course }} курс</dd>
+      {% if r.purpose %}<dt>{{ 'Для чего' if t.kind == 'certificate' else 'Причина' }}</dt><dd>{{ r.purpose }}</dd>{% endif %}
+      <dt>Формат</dt><dd>{{ FORMAT_LABELS[r.fmt] }}{% if r.fmt == 'paper' and r.copies > 1 %}, {{ r.copies }} экз.{% endif %}</dd>
+      {% if r.comment %}<dt>Комментарий студента</dt><dd>{{ r.comment }}</dd>{% endif %}
+    </dl>
+
+    {% if transitions %}
+    <form method="post" action="/staff/requests/{{ r.id }}/status" class="form staff-action" data-submit-once>
+      <input type="hidden" name="csrf_token" value="{{ csrf }}">
+      {% if error %}<p class="alert alert-bad" role="alert">{{ icon('triangle-alert') }}<span>{{ error }}</span></p>{% endif %}
+      <fieldset class="field">
+        <legend>Новый статус</legend>
+        <div class="choice-row">
+          {% for st in transitions %}
+          <label class="choice choice-sm"><input type="radio" name="new_status" value="{{ st }}" {% if loop.first %}checked{% endif %}><span><b>{{ status_label(st) }}</b></span></label>
+          {% endfor %}
+        </div>
+      </fieldset>
+      <div class="field"><label for="comment">Комментарий студенту</label>
+        <textarea class="input" id="comment" name="comment" rows="3" maxlength="1000" placeholder="Обязательно для статусов «Нужно уточнение» и «Отклонена»"></textarea></div>
+      <button class="btn btn-primary" type="submit" data-busy-text="Сохраняем...">Сохранить и уведомить студента</button>
+    </form>
+    {% else %}
+      <p class="muted">Заявка закрыта, менять статус больше не нужно.</p>
+    {% endif %}
+  </section>
+
+  <section class="section">
+    <h2>История</h2>
+    <ol class="history">
+      {% for e in r.events|reverse %}
+      <li><span class="h-dot is-{{ e.status }}" aria-hidden="true"></span>
+        <div><b>{{ status_label(e.status) }}</b><small>{{ e.created_at|local|fdt }}, {{ 'деканат' if e.actor == 'staff' else 'студент' }}</small>
+        {% if e.comment %}<p>{{ e.comment }}</p>{% endif %}</div></li>
+      {% endfor %}
+    </ol>
+    <a class="btn btn-ghost btn-sm" href="/staff/messages/{{ r.student.id }}">{{ icon('message-circle') }}Написать студенту</a>
+  </section>
+</div>
+{% endblock %}

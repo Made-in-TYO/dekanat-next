@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block body_class %}page-plain{% endblock %}
+{% block shell %}
+<header class="plain-top">
+  <a class="brand" href="/">
+    <img src="/static/img/logo.svg?v={{ asset_v }}" alt="" width="32" height="32">
+    <span class="brand-name">Деканат Next</span>
+  </a>
+  {% if user %}<a class="btn btn-ghost btn-sm" href="{{ '/staff' if user.role == 'staff' else '/home' }}">В кабинет</a>
+  {% else %}<a class="btn btn-ghost btn-sm" href="/login">Войти</a>{% endif %}
+</header>
+<main id="main" class="plain-main">
+  {% block content %}{% endblock %}
+</main>
+<p class="concept-foot">Концепт для конкурса MGIMO AI Challenge. Не официальный сервис вуза. Все люди и данные вымышлены.</p>
+{% endblock %}

@@ -1,0 +1,54 @@
+{% extends "app.html" %}
+{% import "partials/ui.html" as ui %}
+{% block title %}Изменения расписания{% endblock %}
+{% block content %}
+<header class="page-head"><h1>Изменения расписания</h1><p class="muted">Группа получит уведомление сразу после сохранения</p></header>
+
+<form method="get" action="/staff/schedule" class="toolbar">
+  <label class="inline-field">Группа
+    <select class="input" name="group">{% for g in groups %}<option value="{{ g }}" {% if g == group %}selected{% endif %}>{{ g }}</option>{% endfor %}</select></label>
+  <label class="inline-field">Дата <input class="input" type="date" name="date" value="{{ d.isoformat() }}"></label>
+  <button class="btn btn-secondary btn-sm" type="submit">Показать</button>
+</form>
+
+<section class="section">
+  <h2>{{ d|fdate(with_weekday=True)|capitalize }}, группа {{ group }}</h2>
+  {% if lessons %}
+  <ul class="staff-lessons">
+    {% for v in lessons %}
+    <li>
+      <ol class="timeline timeline-compact">{{ ui.lesson_row(v) }}</ol>
+      {% if v.status != 'moved_in' %}
+      <details class="change-form">
+        <summary>{{ icon('calendar-clock') }}Изменить это занятие</summary>
+        <form method="post" action="/staff/schedule" class="form" data-submit-once data-change-form>
+          <input type="hidden" name="csrf_token" value="{{ csrf }}">
+          <input type="hidden" name="template_id" value="{{ v.template_id }}">
+          <input type="hidden" name="day" value="{{ d.isoformat() }}">
+          <div class="field"><label>Что меняем
+            <select class="input" name="change_type" data-change-type>
+              <option value="room">Другая аудитория</option>
+              <option value="cancelled">Отмена</option>
+              <option value="moved">Перенос на другую дату</option>
+              <option value="teacher">Замена преподавателя</option>
+              <option value="online">Перевести в онлайн</option>
+            </select></label></div>
+          <div class="field" data-for="room"><label>Новая аудитория <input class="input" name="new_room" maxlength="32"></label></div>
+          <div class="field" data-for="teacher" hidden><label>Кто ведет <input class="input" name="new_teacher" maxlength="128"></label></div>
+          <div class="field-row" data-for="moved" hidden>
+            <label>Новая дата <input class="input" type="date" name="new_date" value="{{ (d + timedelta(days=1)).isoformat() }}"></label>
+            <label>Пара <select class="input" name="new_pair_no">{% for n, (a, b) in PAIRS.items() %}<option value="{{ n }}">{{ n }} ({{ a|hm }})</option>{% endfor %}</select></label>
+          </div>
+          <div class="field"><label>Пояснение для студентов <input class="input" name="note" maxlength="255" placeholder="Например: преподаватель на конференции"></label></div>
+          <button class="btn btn-primary btn-sm" type="submit" data-busy-text="Сохраняем...">Сохранить и уведомить группу</button>
+        </form>
+      </details>
+      {% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+    {{ ui.empty('calendar-days', 'В этот день у группы нет занятий', 'Выберите другую дату.') }}
+  {% endif %}
+</section>
+{% endblock %}

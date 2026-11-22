@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" role="img" aria-label="Деканат Next">
+  <rect width="48" height="48" rx="13" fill="#1B2150"/>
+  <rect x="11" y="12.5" width="26" height="6" rx="3" fill="#FFB547"/>
+  <circle cx="14" cy="15.5" r="1.6" fill="#1B2150"/>
+  <rect x="11" y="22" width="20" height="4.5" rx="2.25" fill="#FFFFFF" fill-opacity=".9"/>
+  <rect x="11" y="30" width="15" height="4.5" rx="2.25" fill="#FFFFFF" fill-opacity=".55"/>
+</svg>

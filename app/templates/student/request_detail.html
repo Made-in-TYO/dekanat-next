@@ -1,0 +1,69 @@
+{% extends "app.html" %}
+{% import "partials/ui.html" as ui %}
+{% block title %}{{ t.title }}, {{ r.number }}{% endblock %}
+{% block content %}
+<a class="back" href="/requests">{{ icon('arrow-left') }}Заявки</a>
+<header class="page-head">
+  <h1>{{ t.title }}</h1>
+  <p class="muted">Заявка {{ r.number }}, отправлена {{ r.created_at|local|fdt }}</p>
+</header>
+
+<section class="req-status is-{{ r.status }}">
+  <div class="rs-top">{{ ui.status_chip(r.status) }}<span class="muted">{{ STATUS[r.status][1] }}</span></div>
+  {{ ui.tracker(r) }}
+
+  {% if r.status == 'need_info' %}
+  <div class="ask">
+    <p class="ask-q">{{ icon('message-circle') }}<span><b>Вопрос деканата:</b> {{ r.staff_comment }}</span></p>
+    <form method="post" action="/requests/{{ r.id }}/reply" class="form" data-submit-once>
+      <input type="hidden" name="csrf_token" value="{{ csrf }}">
+      <label for="answer" class="sr-only">Ваш ответ</label>
+      <textarea class="input" id="answer" name="answer" rows="3" maxlength="1000" required placeholder="Ваш ответ"></textarea>
+      <button class="btn btn-primary" type="submit" data-busy-text="Отправляем...">Ответить</button>
+    </form>
+  </div>
+  {% endif %}
+
+  {% if r.status in ('ready', 'issued') %}
+    {% if r.fmt == 'electronic' and t.kind == 'certificate' %}
+      <a class="btn btn-primary" href="/requests/{{ r.id }}/document">{{ icon('qr-code') }}Открыть справку</a>
+    {% elif r.fmt == 'electronic' %}
+      <p class="ready-note">{{ icon('circle-check') }}<span>Заявление рассмотрено. {{ r.staff_comment or '' }}</span></p>
+    {% elif r.pickup_place %}
+      <p class="ready-note">{{ icon('building-2') }}<span><b>Где забрать:</b> {{ r.pickup_place }}. Возьмите студенческий билет или паспорт.</span></p>
+    {% endif %}
+  {% endif %}
+
+  {% if r.status == 'rejected' and r.staff_comment %}
+    <p class="alert alert-bad">{{ icon('info') }}<span><b>Причина:</b> {{ r.staff_comment }}</span></p>
+  {% endif %}
+</section>
+
+<div class="two-col">
+  <section class="section">
+    <h2>Детали</h2>
+    <dl class="dl">
+      {% if r.purpose %}<dt>{{ 'Для чего' if t.kind == 'certificate' else 'Причина' }}</dt><dd>{{ r.purpose }}</dd>{% endif %}
+      <dt>Формат</dt><dd>{{ FORMAT_LABELS[r.fmt] }}{% if r.fmt == 'paper' and r.copies > 1 %}, {{ r.copies }} экз.{% endif %}</dd>
+      {% if r.comment %}<dt>Комментарий</dt><dd>{{ r.comment }}</dd>{% endif %}
+    </dl>
+    {% if r.status in ('submitted', 'need_info') %}
+    <form method="post" action="/requests/{{ r.id }}/cancel" class="cancel-form">
+      <input type="hidden" name="csrf_token" value="{{ csrf }}">
+      <button class="btn btn-ghost btn-danger" type="submit">Отменить заявку</button>
+    </form>
+    {% endif %}
+  </section>
+
+  <section class="section">
+    <h2>История</h2>
+    <ol class="history">
+      {% for e in r.events|reverse %}
+      <li><span class="h-dot is-{{ e.status }}" aria-hidden="true"></span>
+        <div><b>{{ status_label(e.status) }}</b><small>{{ e.created_at|local|fdt }}, {{ 'деканат' if e.actor == 'staff' else 'вы' }}</small>
+        {% if e.comment %}<p>{{ e.comment }}</p>{% endif %}</div></li>
+      {% endfor %}
+    </ol>
+  </section>
+</div>
+{% endblock %}

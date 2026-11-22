@@ -1,0 +1,22 @@
+{% extends "app.html" %}
+{% block title %}{{ st.user.full_name }}{% endblock %}
+{% block content %}
+<a class="back" href="/staff/messages">{{ icon('arrow-left') }}Вопросы</a>
+<header class="page-head"><h1>{{ st.user.full_name }}</h1><p class="muted">{{ st.group_code }}, {{ st.faculty_short }}, {{ st.course }} курс</p></header>
+<section class="chat">
+  <ol class="chat-list">
+    {% for m in items %}
+    <li class="msg {{ 'from-me' if m.from_staff else 'from-staff' }}"{% if loop.last %} id="last"{% endif %}>
+      <p class="msg-author">{{ 'Деканат' if m.from_staff else st.user.first_name }}</p>
+      <p class="msg-body">{{ m.body }}</p><small>{{ m.created_at|ago }}</small>
+    </li>
+    {% endfor %}
+  </ol>
+  <form method="post" action="/staff/messages/{{ st.id }}" class="chat-form" data-submit-once>
+    <input type="hidden" name="csrf_token" value="{{ csrf }}">
+    <label for="body" class="sr-only">Ответ</label>
+    <textarea class="input" id="body" name="body" rows="2" maxlength="2000" required placeholder="Ответ студенту"></textarea>
+    <button class="btn btn-primary" type="submit" data-busy-text="...">{{ icon('send') }}<span>Ответить</span></button>
+  </form>
+</section>
+{% endblock %}

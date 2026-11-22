@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% block title %}Вход{% endblock %}
+{% block body_class %}page-login{% endblock %}
+{% block shell %}
+<main id="main" class="login">
+  <section class="login-hero" aria-hidden="true">
+    <div class="login-board">
+      <p class="lb-row"><span>08:20</span><span>Физика</span><span class="lb-flag">Отмена</span></p>
+      <p class="lb-row"><span>11:40</span><span>Стратегия</span><span>ауд. 1229</span></p>
+      <p class="lb-row"><span>13:30</span><span>Базы данных</span><span>Онлайн</span></p>
+      <p class="lb-row"><span>15:20</span><span>Справка</span><span class="lb-ok">Готова</span></p>
+    </div>
+    <p class="login-claim">Расписание, баллы, справки и деканат на одном экране телефона</p>
+  </section>
+
+  <section class="login-card">
+    <div class="brand brand-lg">
+      <img src="/static/img/logo.svg?v={{ asset_v }}" alt="" width="44" height="44">
+      <span class="brand-name">Деканат Next</span>
+    </div>
+    <h1>Вход в кабинет</h1>
+    <p class="muted">Концепт личного кабинета студента для конкурса MGIMO AI Challenge. Это не официальный сервис вуза, все данные вымышлены.</p>
+
+    {% if error %}<p class="alert alert-bad" role="alert">{{ icon('triangle-alert') }}<span>{{ error }}</span></p>{% endif %}
+
+    <form method="post" action="/login" class="form" data-submit-once>
+      <input type="hidden" name="next" value="{{ next }}">
+      <div class="field">
+        <label for="login">Логин</label>
+        <input class="input" id="login" name="login" autocomplete="username" autocapitalize="none" spellcheck="false"
+               required maxlength="64" value="{{ login or '' }}">
+      </div>
+      <div class="field">
+        <label for="password">Пароль</label>
+        <div class="pw-wrap">
+          <input class="input" id="password" name="password" type="password" autocomplete="current-password" required maxlength="256">
+          <button class="pw-toggle" type="button" data-pw-toggle aria-label="Показать пароль" aria-controls="password">{{ icon('eye', 'ic ic-show') }}{{ icon('eye-off', 'ic ic-hide') }}</button>
+        </div>
+      </div>
+      <button class="btn btn-primary btn-block" type="submit" data-busy-text="Входим...">Войти</button>
+    </form>
+
+    <details class="demo">
+      <summary>Тестовые аккаунты для жюри</summary>
+      <p class="muted small">Нажмите на аккаунт, чтобы подставить логин и пароль. Это демо-доступ к вымышленным данным.</p>
+      <ul class="demo-list">
+        {% for lg, pw, role in demo %}
+        <li><button type="button" class="demo-acc" data-fill-login="{{ lg }}" data-fill-password="{{ pw }}">
+          <b>{{ role }}</b><span>{{ lg }} / {{ pw }}</span></button></li>
+        {% endfor %}
+      </ul>
+    </details>
+  </section>
+</main>
+{% endblock %}

@@ -1,0 +1,49 @@
+{% extends "app.html" %}
+{% import "partials/ui.html" as ui %}
+{% block title %}Уведомления{% endblock %}
+{% block content %}
+<header class="page-head page-head-row">
+  <div>
+    <h1>Уведомления</h1>
+    <p class="muted">{% if unread %}{{ unread }} {{ plural(unread, 'новое', 'новых', 'новых') }}{% else %}Все прочитано{% endif %}</p>
+  </div>
+  {% if unread %}
+  <form method="post" action="/notifications/read-all">
+    <input type="hidden" name="csrf_token" value="{{ csrf }}">
+    <button class="btn btn-ghost btn-sm" type="submit">{{ icon('check') }}Прочитать все</button>
+  </form>
+  {% endif %}
+</header>
+
+{% set kinds = [('all', 'Все'), ('schedule', 'Расписание'), ('request', 'Заявки'), ('deadline', 'Дедлайны'), ('news', 'Деканат'), ('message', 'Ответы')] %}
+<nav class="filters" aria-label="Фильтр уведомлений">
+  {% for k, label in kinds %}<a href="/notifications?kind={{ k }}" class="{% if kind == k %}is-active{% endif %}"{% if kind == k %} aria-current="true"{% endif %}>{{ label }}</a>{% endfor %}
+</nav>
+
+{% if kind == 'news' and news %}
+<section class="section">
+  <h2>Объявления деканата</h2>
+  <ul class="news">{% for a in news %}<li><b>{{ a.title }}</b><p>{{ a.body }}</p><small>{{ a.created_at|ago }}{% if a.audience != 'all' %}, для группы {{ a.audience.split(':')[1] }}{% endif %}</small></li>{% endfor %}</ul>
+</section>
+{% endif %}
+
+{% if items %}
+<ul class="notifs">
+  {% set icons = {'schedule': 'calendar-clock', 'request': 'file-text', 'deadline': 'timer', 'news': 'megaphone', 'message': 'message-circle'} %}
+  {% for n in items %}
+  <li class="notif is-{{ n.kind }}{% if not n.read_at %} is-unread{% endif %}">
+    <form method="post" action="/notifications/{{ n.id }}/open">
+      <input type="hidden" name="csrf_token" value="{{ csrf }}">
+      <button type="submit">
+        <span class="n-ic">{{ icon(icons.get(n.kind, 'bell')) }}</span>
+        <span class="n-text"><b>{{ n.title }}</b>{% if n.body %}<span>{{ n.body }}</span>{% endif %}<small>{{ n.created_at|ago }}</small></span>
+        {% if not n.read_at %}<span class="n-dot" aria-label="новое"></span>{% endif %}
+      </button>
+    </form>
+  </li>
+  {% endfor %}
+</ul>
+{% else %}
+  {{ ui.empty('bell', 'Здесь пока пусто', 'Когда изменится расписание, статус заявки или деканат опубликует объявление, уведомление появится здесь.') }}
+{% endif %}
+{% endblock %}

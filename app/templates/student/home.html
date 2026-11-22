@@ -1,0 +1,133 @@
+{% extends "app.html" %}
+{% import "partials/ui.html" as ui %}
+{% block title %}Мой день{% endblock %}
+{% block content %}
+<header class="page-head">
+  <h1 class="hello">Привет, {{ user.first_name }}</h1>
+  <p class="muted">{{ now.date()|fdate(with_weekday=True) }}, {{ week_no }} учебная неделя, {{ 'нечетная' if parity == 'odd' else 'четная' }}</p>
+</header>
+
+<div class="home-grid">
+  <div class="home-main">
+    {# Табло: главный элемент экрана #}
+    {% set focus = current or next %}
+    <section class="board" aria-labelledby="board-title">
+      {% if focus %}
+        <p class="board-kicker" id="board-title">
+          {% if current and not next %}Идет сейчас, до конца пары
+          {% elif current %}Идет сейчас
+          {% else %}Следующая пара{% endif %}
+          <b data-countdown="{{ (focus.end_dt if current else focus.start_dt).isoformat() }}" data-countdown-mode="{{ 'end' if current else 'start' }}">{{ (focus.end_dt if current else focus.start_dt)|until }}</b>
+        </p>
+        <div class="board-main">
+          <p class="board-time">{{ focus.start|hm }}</p>
+          <p class="board-room">{% if focus.online %}Онлайн{% else %}<small>ауд.</small> {{ focus.room }}{% endif %}</p>
+        </div>
+        <p class="board-title">{{ focus.discipline }}</p>
+        <p class="board-meta">{{ focus.kind_label }}, {{ focus.teacher }}{% if not focus.online %}, {{ focus.building }}{% endif %}</p>
+        {% if focus.day != now.date() %}<p class="board-day">{{ focus.day|human_day|capitalize }}, {{ focus.day|fdate(with_weekday=True) }}</p>{% endif %}
+        {% if focus.changed %}<p class="board-change">{{ icon('triangle-alert') }}{% if focus.status == 'room' %}Аудитория изменилась, раньше была {{ focus.old_room }}{% elif focus.status == 'moved_in' %}{{ focus.moved_text }}{% elif focus.status == 'online' %}Занятие перевели в онлайн{% elif focus.status == 'teacher' %}Ведет {{ focus.teacher }} вместо {{ focus.old_teacher }}{% endif %}</p>{% endif %}
+        {% if current and next %}
+          <p class="board-then">Потом: {{ next.start|hm }}, {{ next.discipline }}{% if not next.online %}, ауд. {{ next.room }}{% endif %}</p>
+        {% endif %}
+      {% else %}
+        <p class="board-kicker" id="board-title">Ближайших пар нет</p>
+        <p class="board-title">В ближайшие две недели занятий нет. Хорошее время для курсовой.</p>
+      {% endif %}
+    </section>
+
+    <section class="section">
+      <div class="section-head">
+        <h2>Сегодня</h2>
+        <a class="link" href="/schedule">Вся неделя</a>
+      </div>
+      {% if lessons_today %}
+        <ol class="timeline">{% for v in lessons_today %}{{ ui.lesson_row(v, now) }}{% endfor %}</ol>
+      {% else %}
+        {{ ui.empty('calendar-days', 'Сегодня пар нет', 'Выходной по расписанию. Следующее занятие показано на табло выше.') }}
+      {% endif %}
+    </section>
+
+    {% if changes %}
+    <section class="section">
+      <div class="section-head"><h2>Изменения на 7 дней</h2><span class="chip chip-warn">{{ changes|length }}</span></div>
+      <ul class="changes">
+        {% for v in changes %}
+        <li>
+          <a href="/schedule?date={{ v.day.isoformat() }}">
+            <span class="ch-day">{{ v.day|human_day|capitalize }}, {{ v.start|hm }}</span>
+            <span class="ch-what"><b>{{ v.discipline }}</b>
+              {% if v.status == 'cancelled' %}отменена{% elif v.status == 'moved_away' %}{{ v.moved_text|lower }}{% elif v.status == 'moved_in' %}{{ v.moved_text|lower }}{% elif v.status == 'room' %}в ауд. {{ v.room }} вместо {{ v.old_room }}{% elif v.status == 'teacher' %}ведет {{ v.teacher }}{% elif v.status == 'online' %}пройдет онлайн{% endif %}</span>
+          </a>
+        </li>
+        {% endfor %}
+      </ul>
+    </section>
+    {% endif %}
+  </div>
+
+  <div class="home-side">
+    <section class="section">
+      <div class="section-head"><h2>Дедлайны</h2><span class="muted small">2 недели</span></div>
+      {% if deadlines %}
+      <ul class="deadlines">
+        {% for d in deadlines %}
+        {% set days = (d.due_at.date() - now.date()).days %}
+        <li class="{% if days <= 2 %}is-soon{% endif %}">
+          <span class="dl-when"><b>{{ days if days > 0 else '!' }}</b><small>{% if days <= 0 %}сегодня{% else %}{{ plural(days, 'день', 'дня', 'дней') }}{% endif %}</small></span>
+          <span class="dl-what"><b>{{ d.title }}</b><small>{{ d.source }}, до {{ d.due_at|fdt }}</small></span>
+        </li>
+        {% endfor %}
+      </ul>
+      {% else %}
+        {{ ui.empty('circle-check', 'Дедлайнов нет', 'На ближайшие две недели все сдано.') }}
+      {% endif %}
+    </section>
+
+    <section class="section">
+      <div class="section-head"><h2>Мои заявки</h2><a class="link" href="/requests">Все</a></div>
+      {% if active_reqs %}
+      <ul class="req-mini">
+        {% for r in active_reqs %}
+        <li><a href="/requests/{{ r.id }}">
+          <span class="rm-top"><b>{{ TYPES[r.type_code].title }}</b>{{ ui.status_chip(r.status) }}</span>
+          {{ ui.tracker(r) }}
+        </a></li>
+        {% endfor %}
+      </ul>
+      {% else %}
+        {{ ui.empty('file-text', 'Активных заявок нет', 'Справку об обучении можно заказать за минуту.', '/requests/new?type=study', 'Заказать справку') }}
+      {% endif %}
+    </section>
+
+    <section class="section">
+      <div class="section-head"><h2>Как дела с учебой</h2><a class="link" href="/grades">Подробнее</a></div>
+      <div class="study-sum">
+        <p class="ss-num"><b>{{ avg if avg else '-' }}</b><small>средний балл<br>за прошлые сессии</small></p>
+        <p class="ss-num"><b>{{ progress|length - attention|length }}<span>/{{ progress|length }}</span></b><small>дисциплин<br>идут хорошо</small></p>
+      </div>
+      {% if attention %}
+      <ul class="attention">
+        {% for p in attention %}
+        <li class="is-{{ p.state }}"><a href="/grades#d{{ p.enrollment_id }}">
+          <b>{{ p.name }}</b><span>{{ p.points|num }} баллов, {{ p.state_text|lower }}</span></a></li>
+        {% endfor %}
+      </ul>
+      {% else %}<p class="muted small">По всем дисциплинам темп хороший.</p>{% endif %}
+    </section>
+
+    {% if unread_msgs %}
+    <a class="notice" href="/messages">{{ icon('message-circle') }}<span>Деканат ответил на ваш вопрос</span></a>
+    {% endif %}
+
+    {% if news %}
+    <section class="section">
+      <div class="section-head"><h2>Объявления деканата</h2><a class="link" href="/notifications?kind=news">Все</a></div>
+      <ul class="news">
+        {% for a in news %}<li><b>{{ a.title }}</b><p>{{ a.body }}</p><small>{{ a.created_at|ago }}</small></li>{% endfor %}
+      </ul>
+    </section>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

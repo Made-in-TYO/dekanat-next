@@ -1,0 +1,69 @@
+{# Повторно используемые элементы интерфейса #}
+
+{% macro lesson_row(v, now=None, compact=False) -%}
+{% set is_now = now and v.happens and v.start_dt <= now < v.end_dt %}
+{% set is_past = now and v.happens and v.end_dt <= now %}
+<li class="lesson is-{{ v.status }}{% if is_now %} is-now{% endif %}{% if is_past %} is-past{% endif %}">
+  <div class="lesson-time">
+    <span class="t-start">{{ v.start|hm }}</span>
+    <span class="t-end">{{ v.end|hm }}</span>
+  </div>
+  <div class="lesson-body">
+    {% if v.status == 'cancelled' %}<span class="flag flag-bad">{{ icon('circle-x') }}Отмена</span>
+    {% elif v.status == 'moved_away' %}<span class="flag flag-warn">{{ icon('calendar-clock') }}Перенесена</span>
+    {% elif v.status == 'moved_in' %}<span class="flag flag-warn">{{ icon('calendar-clock') }}Перенос</span>
+    {% elif v.status == 'room' %}<span class="flag flag-warn">{{ icon('map-pin') }}Другая аудитория</span>
+    {% elif v.status == 'teacher' %}<span class="flag flag-warn">{{ icon('users') }}Замена преподавателя</span>
+    {% elif v.status == 'online' %}<span class="flag flag-warn">{{ icon('video') }}Онлайн</span>
+    {% elif is_now %}<span class="flag flag-now">Идет сейчас</span>{% endif %}
+    <p class="lesson-title">{{ v.discipline }}</p>
+    <p class="lesson-meta">
+      <span>{{ v.kind_label }}</span>
+      {% if v.online %}<span>{{ icon('video') }}<span>Онлайн</span></span>
+      {% else %}<span>{{ icon('map-pin') }}<span>ауд. {% if v.old_room %}<s>{{ v.old_room }}</s> {% endif %}<b>{{ v.room }}</b>{% if not compact %}, {{ v.building }}{% endif %}</span></span>{% endif %}
+      <span>{{ icon('user-round') }}<span>{% if v.old_teacher %}<s>{{ v.old_teacher }}</s> {% endif %}{{ v.teacher }}</span></span>
+    </p>
+    {% if v.moved_text or v.note %}<p class="lesson-note">{% if v.moved_text %}{{ v.moved_text }}. {% endif %}{{ v.note or '' }}</p>{% endif %}
+  </div>
+</li>
+{%- endmacro %}
+
+{% macro status_chip(code) -%}
+<span class="chip chip-{{ code }}">{{ status_label(code) }}</span>
+{%- endmacro %}
+
+{% macro tracker(r) -%}
+{# Трекер заявки как у доставки: отправлена, в работе, готова #}
+{% set order = {'submitted': 0, 'need_info': 1, 'in_progress': 1, 'ready': 2, 'issued': 2} %}
+{% if r.status in ('rejected', 'cancelled') %}
+  <p class="track-final">{{ icon('circle-x') }}{{ status_label(r.status) }}</p>
+{% else %}
+{% set pos = order.get(r.status, 0) %}
+<ol class="track" aria-label="Ход заявки">
+  {% for label in ['Отправлена', 'В работе', 'Готова'] %}
+  <li class="{% if loop.index0 < pos or (loop.index0 == pos and r.status in ('ready', 'issued')) %}is-done{% elif loop.index0 == pos %}is-current{% endif %}{% if loop.index0 == 1 and r.status == 'need_info' %} is-attention{% endif %}">
+    <span class="track-dot" aria-hidden="true"></span>
+    <span class="track-label">{% if loop.index0 == 1 and r.status == 'need_info' %}Нужно уточнение{% else %}{{ label }}{% endif %}</span>
+  </li>
+  {% endfor %}
+</ol>
+{% endif %}
+{%- endmacro %}
+
+{% macro bar(points, cls='') -%}
+<svg class="bar {{ cls }}" viewBox="0 0 100 8" preserveAspectRatio="none" aria-hidden="true">
+  <rect class="bar-bg" x="0" y="0" width="100" height="8" rx="4"></rect>
+  <rect class="bar-fill" x="0" y="0" width="{{ [points, 100]|min }}" height="8" rx="4"></rect>
+  <line class="bar-mark" x1="60" x2="60" y1="0" y2="8"></line>
+  <line class="bar-mark" x1="91" x2="91" y1="0" y2="8"></line>
+</svg>
+{%- endmacro %}
+
+{% macro empty(ic, title, text, href=None, action=None) -%}
+<div class="empty">
+  <span class="empty-ic">{{ icon(ic) }}</span>
+  <p class="empty-title">{{ title }}</p>
+  <p class="empty-text">{{ text }}</p>
+  {% if href %}<a class="btn btn-secondary" href="{{ href }}">{{ action }}</a>{% endif %}
+</div>
+{%- endmacro %}

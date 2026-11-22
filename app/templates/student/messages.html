@@ -1,0 +1,39 @@
+{% extends "app.html" %}
+{% import "partials/ui.html" as ui %}
+{% block title %}Связь с деканатом{% endblock %}
+{% block content %}
+<header class="page-head">
+  <h1>Связь с деканатом</h1>
+  <p class="muted">Вопрос можно задать здесь, без звонков и почты. Обычно отвечаем в течение рабочего дня.</p>
+</header>
+
+<section class="chat" aria-label="Переписка">
+  {% if items %}
+  <ol class="chat-list">
+    {% for m in items %}
+    <li class="msg {{ 'from-staff' if m.from_staff else 'from-me' }}"{% if loop.last %} id="last"{% endif %}>
+      <p class="msg-author">{{ (m.author.full_name.split()[1] ~ ' ' ~ m.author.full_name.split()[0][0] ~ '., деканат') if m.from_staff else 'Вы' }}</p>
+      <p class="msg-body">{{ m.body }}</p>
+      <small>{{ m.created_at|ago }}</small>
+    </li>
+    {% endfor %}
+  </ol>
+  {% else %}
+    {{ ui.empty('message-circle', 'Вопросов пока не было', 'Спросите про справки, перезачеты, пропуски или сессию. Ответ придет сюда и в уведомления.') }}
+  {% endif %}
+
+  <form method="post" action="/messages" class="chat-form" data-submit-once>
+    <input type="hidden" name="csrf_token" value="{{ csrf }}">
+    <label for="body" class="sr-only">Сообщение</label>
+    <textarea class="input" id="body" name="body" rows="2" maxlength="2000" required placeholder="Напишите вопрос деканату"></textarea>
+    <button class="btn btn-primary" type="submit" data-busy-text="...">{{ icon('send') }}<span>Отправить</span></button>
+  </form>
+</section>
+
+<section class="section faq">
+  <h2>Частые вопросы</h2>
+  <details><summary>Как получить справку об обучении?</summary><p>В разделе <a href="/requests/new?type=study">Заявки</a>. Электронная справка с QR-кодом готова за 1 рабочий день, ее принимают банки и работодатели.</p></details>
+  <details><summary>Пропустил занятия по болезни, что делать?</summary><p>Передайте преподавателю медицинскую справку и напишите сюда, если пропуск пришелся на контрольную. Деканат согласует пересдачу.</p></details>
+  <details><summary>Совпали экзамены в сессию</summary><p>Подайте заявление на <a href="/requests/new?type=schedule">индивидуальный график сессии</a> до 15 декабря.</p></details>
+</section>
+{% endblock %}

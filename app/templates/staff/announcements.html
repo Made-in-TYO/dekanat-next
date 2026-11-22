@@ -1,0 +1,29 @@
+{% extends "app.html" %}
+{% import "partials/ui.html" as ui %}
+{% block title %}Объявления{% endblock %}
+{% block content %}
+<header class="page-head"><h1>Объявления</h1><p class="muted">Студенты увидят объявление в ленте и получат уведомление</p></header>
+<div class="two-col">
+  <section class="section">
+    <h2>Новое объявление</h2>
+    <form method="post" action="/staff/announcements" class="form" data-submit-once>
+      <input type="hidden" name="csrf_token" value="{{ csrf }}">
+      {% if error %}<p class="alert alert-bad" role="alert">{{ icon('triangle-alert') }}<span>{{ error }}</span></p>{% endif %}
+      <div class="field"><label for="title">Заголовок</label><input class="input" id="title" name="title" maxlength="200" required value="{{ form.title or '' }}"></div>
+      <div class="field"><label for="body">Текст</label><textarea class="input" id="body" name="body" rows="5" maxlength="3000" required>{{ form.body or '' }}</textarea></div>
+      <div class="field"><label for="audience">Кому</label>
+        <select class="input" id="audience" name="audience">
+          <option value="all">Всем студентам</option>
+          {% for g in groups %}<option value="group:{{ g }}" {% if form.audience == 'group:' ~ g %}selected{% endif %}>Группе {{ g }}</option>{% endfor %}
+        </select></div>
+      <button class="btn btn-primary" type="submit" data-busy-text="Публикуем...">{{ icon('megaphone') }}Опубликовать</button>
+    </form>
+  </section>
+  <section class="section">
+    <h2>Опубликованные</h2>
+    {% if items %}
+    <ul class="news">{% for a in items %}<li><b>{{ a.title }}</b><p>{{ a.body }}</p><small>{{ a.created_at|ago }}, {{ 'всем' if a.audience == 'all' else 'группе ' ~ a.audience.split(':')[1] }}</small></li>{% endfor %}</ul>
+    {% else %}{{ ui.empty('megaphone', 'Объявлений пока нет', 'Первое объявление появится здесь.') }}{% endif %}
+  </section>
+</div>
+{% endblock %}
