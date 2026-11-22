@@ -7,7 +7,7 @@ from zoneinfo import ZoneInfo
 TZ = ZoneInfo("Europe/Moscow")
 
 # Строка подключения к базе. По умолчанию SQLite-файл в папке data/.
-# Для масштабирования достаточно указать PostgreSQL:
+# PostgreSQL: установить драйвер psycopg и указать строку ниже (на PostgreSQL прототип не проверялся):
 #   DATABASE_URL=postgresql+psycopg://user:pass@host:5432/dekanat
 # На хостинге Amvera постоянное хранилище подключено в /data (см. amvera.yml): база переживает перезапуски.
 _default_data = "/data" if os.path.isdir("/data") and os.access("/data", os.W_OK) else \

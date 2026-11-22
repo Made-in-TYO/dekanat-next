@@ -25,7 +25,8 @@
         </p>
         <div class="board-main">
           <p class="board-time">{{ focus.start|hm }}</p>
-          <p class="board-room">{% if focus.online %}Онлайн{% else %}<small>ауд.</small> {{ focus.room }}{% endif %}</p>
+          {% set room_is_text = focus.online or (focus.room|string)|length > 5 %}
+          <p class="board-room{% if room_is_text %} is-text{% endif %}">{% if focus.online %}Онлайн{% else %}{% if (focus.room|string)[:1].isdigit() %}<small>ауд.</small> {% endif %}{{ focus.room }}{% endif %}</p>
         </div>
         <p class="board-title">{{ focus.discipline }}</p>
         <p class="board-meta">{{ focus.kind_label }}, {{ focus.teacher }}{% if not focus.online %}, {{ focus.building }}{% endif %}</p>

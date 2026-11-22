@@ -47,6 +47,7 @@
         {% for lg, pw, role in demo %}
         <form method="post" action="/login">
           <input type="hidden" name="login" value="{{ lg }}"><input type="hidden" name="password" value="{{ pw }}">
+          {% if next %}<input type="hidden" name="next" value="{{ next }}">{% endif %}
           <button type="submit" class="demo-acc"><b>{{ role }}</b><span>{{ lg }} / {{ pw }}</span></button>
         </form>
         {% endfor %}

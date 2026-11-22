@@ -10,6 +10,7 @@ from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import PlainTextResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.middleware.gzip import GZipMiddleware
 from starlette.concurrency import run_in_threadpool
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
@@ -30,6 +31,7 @@ async def lifespan(_app: FastAPI):
 
 # Документация API отключена: в продакшене она не нужна и раскрывала бы внутреннее устройство
 app = FastAPI(title="Деканат Next", docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan)
+app.add_middleware(GZipMiddleware, minimum_size=1000)  # страницы и CSS сжимаются, если браузер это поддерживает
 
 
 class CachedStatic(StaticFiles):

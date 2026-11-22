@@ -274,8 +274,8 @@ def change_notice(discipline: str, pair_no: int, c: LessonChange) -> tuple[str, 
         title, body = f"Онлайн: {discipline}", f"{when}: пара пройдет онлайн."
     else:
         title = f"Перенос: {discipline}"
-        body = (f"Пара {from_day(c.date)}, {pair_name(pair_no)}, перенесена "
-                f"{on_day(c.new_date)}, {pair_name(c.new_pair_no)}.")
+        body = (f"Пара перенесена {from_day(c.date)} ({pair_name(pair_no)}) "
+                f"{on_day(c.new_date)} ({pair_name(c.new_pair_no)}).")
     if c.note:
         body += f" {c.note}"
     return title, body[:1].upper() + body[1:]

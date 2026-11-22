@@ -10,7 +10,8 @@
 
 <section class="req-status is-{{ r.status }}">
   <div class="rs-top">{{ ui.status_chip(r) }}<span class="muted">{{ status_info(r.status, r.type_code, r.fmt)[1] }}</span></div>
-  {% if r.status in ('submitted', 'in_progress', 'need_info') %}{% set eta = eta_for(r.created_at|local, t.days, t.kind) %}<p class="eta{% if eta.overdue %} is-late{% endif %}">{{ icon('calendar-clock') }}<span>{{ eta.text }}{% if eta.overdue %} (<a href="/messages">написать</a>){% endif %}</span></p>{% endif %}
+  {% if r.status == 'need_info' %}<p class="eta">{{ icon('calendar-clock') }}<span>Срок зависит от вашего ответа на вопрос деканата</span></p>
+  {% elif r.status in ('submitted', 'in_progress') %}{% set eta = eta_for(r.created_at|local, t.days, t.kind) %}<p class="eta{% if eta.overdue %} is-late{% endif %}">{{ icon('calendar-clock') }}<span>{{ eta.text }}{% if eta.overdue %} (<a href="/messages">написать</a>){% endif %}</span></p>{% endif %}
   {{ ui.tracker(r) }}
 
   {% if r.status == 'need_info' %}
@@ -48,7 +49,7 @@
     <h2>Детали</h2>
     <dl class="dl">
       <dt>Номер</dt><dd>{{ r.number }}</dd>
-      <dt>{{ 'Срок рассмотрения' if t.kind == 'application' else 'Обычный срок' }}</dt><dd>{% if is_instant(r.type_code, r.fmt) %}сразу{% elif t.days == 1 %}1 рабочий день{% else %}до {{ t.days }} рабочих дней{% endif %}</dd>
+      <dt>{{ 'Срок рассмотрения' if t.kind == 'application' else ('Срок' if is_instant(r.type_code, r.fmt) else 'Обычный срок') }}</dt><dd>{% if is_instant(r.type_code, r.fmt) %}сразу{% elif t.days == 1 %}1 рабочий день{% else %}до {{ t.days }} рабочих дней{% endif %}</dd>
       {% if r.purpose %}<dt>{{ 'Для чего' if t.kind == 'certificate' else 'Причина' }}</dt><dd>{{ r.purpose }}</dd>{% endif %}
       {% if t.kind == 'certificate' %}<dt>Формат</dt><dd>{{ FORMAT_LABELS[r.fmt] }}{% if r.fmt == 'paper' and r.copies > 1 %}, {{ r.copies }} экз.{% endif %}</dd>{% endif %}
       {% if r.comment %}<dt>Комментарий</dt><dd>{{ r.comment }}</dd>{% endif %}

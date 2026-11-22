@@ -262,7 +262,10 @@ def schedule_change(request: Request, template_id: IdForm, day: str = Form(...),
     # Сравниваем со временем начала пары, а не только с датой: идущую или прошедшую сегодня пару менять поздно
     if S.lesson_start(d, t.pair_no) <= now_local():
         ctx = _schedule_ctx(db, t.group_code, d, errors={"day": "Это занятие уже началось или прошло, менять его нельзя"},
-                            error_template=t.id, form={"change_type": change_type})
+                            error_template=t.id,
+                            form={"change_type": change_type, "new_room": new_room.strip()[:32],
+                                  "new_teacher": new_teacher.strip()[:128], "new_date": new_date,
+                                  "new_pair_no": new_pair_no, "note": note.strip()[:255]})
         return render(request, "staff/schedule.html", ctx, status_code=400, db=db)
 
     if change_type == "revert":

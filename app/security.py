@@ -21,16 +21,24 @@ from .services.timeutil import utcnow
 
 _ph = PasswordHasher()  # argon2id с параметрами по умолчанию (рекомендация OWASP)
 
+# Каждая проверка пароля argon2id берет 64 МБ памяти. Чтобы одновременные входы (например, перебор
+# в 16 потоков) не исчерпали память контейнера (512 МБ на тарифе), одновременно идут не больше двух
+# проверок, остальные ждут своей очереди.
+ARGON2_SLOTS = 2
+_argon2_slots = threading.BoundedSemaphore(ARGON2_SLOTS)
+
 
 def hash_password(password: str) -> str:
-    return _ph.hash(password)
+    with _argon2_slots:
+        return _ph.hash(password)
 
 
 def verify_password(password_hash: str, password: str) -> bool:
-    try:
-        return _ph.verify(password_hash, password)
-    except (VerifyMismatchError, VerificationError, InvalidHashError):
-        return False
+    with _argon2_slots:
+        try:
+            return _ph.verify(password_hash, password)
+        except (VerifyMismatchError, VerificationError, InvalidHashError):
+            return False
 
 
 # Хеш-заглушка, чтобы время ответа не выдавало, существует ли логин

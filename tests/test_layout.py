@@ -147,3 +147,91 @@ def test_no_horizontal_scroll_or_console_errors_at_360px(live_server):
         browser.close()
         pw.stop()
     assert not problems, problems
+
+
+# ---------- Табло на телефоне (четвертая проверка, находка 1) ----------
+# Обход выше проверяет прокрутку всей страницы, а у табло overflow: hidden, и обрезанный текст
+# прокрутки не дает. Поэтому табло проверяется отдельно: в моменты, когда на нем «Онлайн»,
+# «Спортзал» и длинная аудитория, которую ввел сотрудник, на ширине 360, 390 и 1440 px.
+BOARD_CASES = [
+    (datetime(2026, 11, 24, 9, 0), "timur", None),          # вторник до 10:00: онлайн-лекция
+    (datetime(2026, 11, 24, 12, 0), "timur", None),         # вторник днем: Спортзал
+    (datetime(2026, 11, 27, 12, 0), "timur", None),         # пятница: Спортзал
+    (datetime(2026, 11, 26, 14, 0), "kira", None),          # четверг после 13:10
+    (datetime(2026, 11, 27, 10, 0), "kira", None),          # пятница
+    (datetime(2026, 11, 23, 9, 0), "timur", "Конференц-зал"),
+    (datetime(2026, 11, 23, 9, 0), "timur", LONG_WORD[:32]),
+]
+BOARD_CHECK = """() => {
+  const b = document.querySelector('.board'); if (!b) return {bad: ['нет табло'], text: ''};
+  const br = b.getBoundingClientRect(); const bad = [];
+  for (const el of b.querySelectorAll('.board-main, .board-main *, .board-title, .board-meta, .board-kicker')) {
+    const r = el.getBoundingClientRect();
+    if (r.width && r.right > br.right + 0.5) bad.push(el.className + ': выходит за табло на ' + Math.round(r.right - br.right) + ' px');
+    if (el.clientWidth && el.scrollWidth > el.clientWidth + 1) bad.push(el.className + ': обрезано ' + el.scrollWidth + ' > ' + el.clientWidth);
+  }
+  const t = b.querySelector('.board-time');
+  if (t && t.getBoundingClientRect().height > parseFloat(getComputedStyle(t).fontSize) * 1.6) bad.push('время на табло разорвано на строки');
+  return {bad, text: b.querySelector('.board-room') ? b.querySelector('.board-room').textContent.trim() : ''};
+}"""
+
+
+@pytest.fixture
+def board_server():
+    timeutil.freeze(NOW)
+    init_db(reset=True)
+    port = _free_port()
+    server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning", lifespan="off"))
+    th = threading.Thread(target=server.run, daemon=True)
+    th.start()
+    for _ in range(100):
+        if server.started:
+            break
+        time.sleep(0.05)
+    yield f"http://127.0.0.1:{port}"
+    server.should_exit = True
+    th.join(timeout=5)
+    timeutil.freeze(None)
+
+
+def test_board_fits_on_phone_with_text_rooms(board_server):
+    try:
+        pw = sync_api.sync_playwright().start()
+        browser = pw.chromium.launch()
+    except Exception as exc:
+        pytest.skip(f"Chromium для Playwright недоступен: {exc}")
+    problems, seen_rooms = {}, set()
+    try:
+        for moment, user, long_room in BOARD_CASES:
+            timeutil.freeze(moment)
+            init_db(reset=True)
+            reset_login_limits()
+            group = "P3214" if user == "timur" else "U4227"
+            if long_room:
+                from app.models import LessonChange
+                with SessionLocal() as db:
+                    cur, nxt = S.current_and_next(db, group)
+                    focus = cur or nxt
+                    db.add(LessonChange(template_id=focus.template_id, date=focus.day, change_type="room", new_room=long_room))
+                    db.commit()
+            for width in (360, 390, 1440):
+                ctx = browser.new_context(viewport={"width": width, "height": 800}, timezone_id="Europe/Moscow")
+                ctx.clock.set_fixed_time(moment.isoformat() + "+03:00")
+                page = ctx.new_page()
+                page.goto(board_server + "/login")
+                page.fill("#login", user)
+                page.fill("#password", "Timur-2026" if user == "timur" else "Kira-2026")
+                page.click(".login-card [type=submit]")
+                page.wait_for_load_state("load")
+                res = page.evaluate(BOARD_CHECK)
+                seen_rooms.add(res["text"])
+                if res["bad"]:
+                    problems[f"{user} {moment:%a %H:%M} {width}px {long_room or ''}"] = res["bad"]
+                ctx.close()
+    finally:
+        browser.close()
+        pw.stop()
+    assert not problems, problems
+    # тест действительно видел трудные случаи, а не только номера аудиторий
+    for room in ("Онлайн", "Спортзал", "Конференц-зал", LONG_WORD[:32]):
+        assert any(room in r for r in seen_rooms), (room, seen_rooms)
